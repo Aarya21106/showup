@@ -1,0 +1,99 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body {
+    width: 1080px;
+    height: 1350px;
+    overflow: hidden;
+    font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+  }
+  .card {
+    width: 1080px;
+    height: 1350px;
+    background: radial-gradient(circle at 20% 0%, #1c2b23 0%, #0b0f0d 55%, #050605 100%);
+    color: #f4f7f4;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    padding: 90px 80px;
+    position: relative;
+  }
+  .card::before {
+    content: "";
+    position: absolute;
+    top: 0; left: 0; right: 0; height: 10px;
+    background: linear-gradient(90deg, #35e08a, #1fae66);
+  }
+  .brand {
+    font-size: 46px;
+    font-weight: 800;
+    letter-spacing: 10px;
+    color: #35e08a;
+  }
+  .heading {
+    margin-top: 18px;
+    font-size: 88px;
+    font-weight: 900;
+    line-height: 1.02;
+    letter-spacing: 1px;
+  }
+  .subheading {
+    margin-top: 16px;
+    font-size: 40px;
+    font-weight: 600;
+    color: #9fb3a8;
+  }
+  .middle {
+    display: flex;
+    flex-direction: column;
+    gap: 28px;
+  }
+  .line1 {
+    font-size: 42px;
+    font-weight: 600;
+    color: #e7f3ec;
+    background: rgba(53, 224, 138, 0.1);
+    border: 2px solid rgba(53, 224, 138, 0.35);
+    border-radius: 20px;
+    padding: 28px 34px;
+  }
+  .name {
+    font-size: 64px;
+    font-weight: 800;
+    color: #ffffff;
+  }
+  .quote {
+    font-size: 34px;
+    font-style: italic;
+    line-height: 1.5;
+    color: #cfe3d8;
+    border-left: 6px solid #35e08a;
+    padding-left: 28px;
+  }
+  .footer {
+    font-size: 28px;
+    color: #7d9186;
+    letter-spacing: 2px;
+    font-weight: 600;
+  }
+</style>
+</head>
+<body>
+  <div class="card">
+    <div>
+      <div class="brand">SHOWUP</div>
+      <div class="heading">{{heading}}</div>
+      <div class="subheading">{{subheading}}</div>
+    </div>
+    <div class="middle">
+      <div class="line1">{{line1}}</div>
+      <div class="name">{{name}}</div>
+      <div class="quote">{{quote}}</div>
+    </div>
+    <div class="footer">{{footer}}</div>
+  </div>
+</body>
+</html>
