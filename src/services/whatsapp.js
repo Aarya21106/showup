@@ -73,18 +73,37 @@ async function connectToWhatsApp() {
 
   console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
   
+  const usePairingCode = process.env.USE_PAIRING_CODE === 'true';
+  const pairingPhone = process.env.WHATSAPP_PHONE ? process.env.WHATSAPP_PHONE.replace(/[^0-9]/g, '') : null;
+
   sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
-    printQRInTerminal: false,
+    printQRInTerminal: !usePairingCode,
   });
 
   sock.ev.on('creds.update', saveCreds);
 
+  if (usePairingCode && pairingPhone && !sock.authState.creds.registered) {
+    console.log(`[WhatsApp] Requesting pairing code for phone: ${pairingPhone}...`);
+    setTimeout(async () => {
+      try {
+        const code = await sock.requestPairingCode(pairingPhone);
+        const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+        console.log('\n==================================================');
+        console.log(`   YOUR WHATSAPP PAIRING CODE IS: ${formattedCode}   `);
+        console.log('   Enter this on your phone under Linked Devices  ');
+        console.log('==================================================\n');
+      } catch (err) {
+        console.error('[WhatsApp] Failed to request pairing code:', err.message);
+      }
+    }, 3000);
+  }
+
   sock.ev.on('connection.update', (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr) {
+    if (qr && !usePairingCode) {
       console.log('\n==================================================');
       console.log('   SCAN THIS QR CODE WITH YOUR WHATSAPP TO LINK   ');
       console.log('==================================================');
