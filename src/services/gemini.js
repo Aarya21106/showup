@@ -63,7 +63,7 @@ async function callGemini({ parts, jsonMode, temperature }) {
   }
 }
 
-const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi' };
+const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish (Tamil language written using the English/Latin alphabet)' };
 
 /**
  * Produces a short, warm one-line acknowledgment of the user's onboarding answer,

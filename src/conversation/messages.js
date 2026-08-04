@@ -1,6 +1,12 @@
 const config = require('../config');
 
 function getProofInstruction(lang, activity, gestureText) {
+  if (lang === 'tl') {
+    if (activity === 'gym') return `weights pakkathula ${gestureText}`;
+    if (activity === 'running' || activity === 'walking') return `run/walk pannum bodhu ${gestureText} or tracking app screenshot`;
+    if (activity === 'cycling') return `cycle or tracker kooda ${gestureText}`;
+    return `${gestureText}`;
+  }
   if (lang === 'ta') {
     if (activity === 'gym') return `எடையின் அருகில் ${gestureText}`;
     if (activity === 'running' || activity === 'walking') return `நடை/ஓட்டத்தின் போது ${gestureText} அல்லது உங்கள் டிராக்கிங் ஆப்`;
@@ -24,7 +30,7 @@ function getProofInstruction(lang, activity, gestureText) {
 // language yet. Everything from Q3 onward is localized.
 const QUESTIONS = {
   name: "Hey! I'm ShowUp — think of me as the buddy who makes sure you actually follow through this time. What should I call you?",
-  language: 'What language do you want to chat in? English, Tamil, or Hindi — your call.',
+  language: 'What language do you want to chat in? English, Tamil, Hindi, or Tanglish — your call.',
   en: {
     activity: "Alright, let's get into it. What's your thing — gym, running, yoga, home workouts, some sport, walking, swimming, whatever it is. What are we working with?",
     days: 'Be real with me, not ambitious — how many days a week can you actually commit to showing up?',
@@ -33,6 +39,15 @@ const QUESTIONS = {
     vision: 'Now flip it. Picture 30 days from now — you showed up every single time, no excuses. What does that actually do for you?',
     commitment: 'Last one, and be honest — on a scale of 1 to 10, how bad do you want this, right now?',
     allergy: "Do you have any food allergies? (e.g. peanuts, dairy, gluten, or type 'none')",
+  },
+  tl: {
+    activity: 'Okay, start pannalam. Ungalukku enna workout system pidikkum — gym, running, walking, or cycling?',
+    days: 'Sariya sollunga, romba build-up illama — varathuku ethana naal ungalala confirm-ah commit panna mudiyum?',
+    time: 'Day-la endha time-ku neenga workout panna poreenga? (e.g. 7am or 6:30pm)',
+    blocker: 'Ippo real-ana kelvi. Mudhala ungalala consistent-ah irukka mudiyama pona real reason enna — somberithanam, schedule problem, or simple lazy-ah?',
+    vision: 'Ippo nalla yosinga. 30 days continuous-ah show up panna, unga life-la enna change nadakkum? Neenga epdi feel pannuveenga?',
+    commitment: 'Last check, honest-ah sollunga — scale 1 to 10-la, ippo unga commitment level enna?',
+    allergy: "Ungaluku edhavadhu food allergy iruka? (e.g. peanuts, dairy, or 'none' nu type pannunga)",
   },
   ta: {
     activity: 'சரி, தொடங்கலாம். உங்கள் விஷயம் என்ன — ஜிம், ஓட்டம், யோகா, வீட்டு பயிற்சி, ஏதேனும் விளையாட்டு, நடைப்பயிற்சி, நீச்சல், எதுவானாலும் பரவாயில்லை. என்ன இருக்கு?',
@@ -56,6 +71,7 @@ const QUESTIONS = {
 
 function detectLanguage(answer) {
   const a = (answer || '').toLowerCase();
+  if (a.includes('tanglish') || a.includes('tanlish')) return 'tl';
   if (a.includes('tamil') || a.includes('தமிழ்')) return 'ta';
   if (a.includes('hindi') || a.includes('हिंदी') || a.includes('हिन्दी')) return 'hi';
   return 'en';
@@ -98,6 +114,43 @@ const T = {
       `${config.pledgeDays} days done, ${days} of them counted. ₹${payout} உங்களுக்குத் திரும்பும். However it went — you showed up more than you would've without this, and that's not nothing.`,
     missedYesterday: () => "No check-in came in yesterday — marking it as a slip and moving on. No lecture, just: today's a clean slate.",
     waitForPrompt: () => "You're all set — I'll text you at your check-in time each day. Nothing to do right now.",
+  },
+  tl: {
+    depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
+      `${name}, real-ah sollanum-na — neenga "${blocker}" dhaan consistent-ah irukka mudiyama ponadhuku reason-nu sonneenga. Idha complete panna ${vision}-nu sonneenga. Adhudhaan andha gap... idhu adhukaana solution!\n\n` +
+      `Pana vishyam epdi nu clear-ah solren, hidden terms edhum illa:\n` +
+      `💰 Iniku ₹${amt} pay pannunga. Avvalavu dhaan.\n` +
+      `✅ Ella ${days} days-um fake illama check-in panna → ₹${refund} refund kedaikkum. Idhu unga ₹${amt} + ₹${refund - amt} extra — neenga commit panna person-ah maruradhuku ungaluke pay panra madhiri.\n` +
+      `⚠️ Oru naal miss panna, or fake panna → ₹${penalty} unga deposit ₹${amt}-la irundhu poidum. Adhigam slip panna full-um poidum.\n\n` +
+      `Idhu dhaan matter. Subscriptions or extra charges edhum illa. Show up panna mattum dhaan loss-e varum — neenga scale-la ${score}/10 commit-nu sollirkeenga. Ready-ah?`,
+    howItWorks: () =>
+      "Daily schedule: Unga selective time-la daily message pannuven. Enna paneenga-nu oru line + photo-va reply pannunga. Naan andha photo-va pathu direct-ah verify pannuven — fake panna mudiyathu. Correct-ah show up panna patha amount-a vida extra amount kooda return poidalam.",
+    paymentLink: (url) => `Ready-ah? pay ₹${config.depositAmountInr} here: ${url}\n\nPay panni mudichuttu "paid" nu message pannunga. Day 1 start pannalaam.`,
+    notPaidYet: () => `No stress — whenever you're ready. Pay the ₹${config.depositAmountInr}, text me "paid", and we start the clock on the ${config.pledgeDays} days that actually change this.`,
+    paidConfirmed: (time) => `Super, neenga locked in! \u{1F525} Daily ${time} time-ku message pannuven. Routine updates + photo proof anupunga. Day 1 starts now.`,
+    dailyPrompt: (activity, gestureText) => `Time to show up! Iniku ${activity}-ku enna plan? Workout complete pannitu oru line update + ${getProofInstruction('tl', activity, gestureText)} proof-a send pannunga. You can do it.`,
+    needPhoto: (gestureText, activity) => `Update super — verify panna ${getProofInstruction('tl', activity || 'gym', gestureText)} irukra photo proof anupunga.`,
+    needGesturePhoto: (gestureText, activity) => `Today's session verify panna, please ${getProofInstruction('tl', activity || 'gym', gestureText)} irukra photo anupunga.`,
+    reminder: (gestureText, activity) => `hi buddy, edhavadhu marandhuteengala? 😅 Kavalai pada dhedhavadhilla, verify panna andha photo proof anupunga! ${getProofInstruction('tl', activity || 'gym', gestureText)} kaatunga.`,
+    'gesture_thumbs-up': 'thumbs-up sign',
+    'gesture_peace-sign': '2 fingers (peace sign)',
+    'gesture_three-fingers': '3 fingers showing',
+    'gesture_fist': 'making a fist',
+    'gesture_ok-sign': 'OK sign (index and thumb forming circle)',
+    checkinAccepted: (streak, daysLeft) =>
+      `Logged and verified! \u{1F525} ${streak}-day streak. Innum ${daysLeft} days to go — keep pushing.`,
+    checkinFailedFinal: (reason) =>
+      `Check-in match aagala — ${reason} Idhu slip-ah mark panren. Adhukaaga rest andha days complete cancel aavadhu, tomorrow is a new day, show up!`,
+    weeklyOnTrack: (streak, daysLeft, payout) =>
+      `Weekly update: ${streak}-day streak continuous-ah pogudhu. Unga ₹${payout} return payout-ku innum ${daysLeft} days dhaan. Semmaya pannureenga.`,
+    weeklySlipped: (missed, payout) =>
+      `Weekly update: total ${missed} slips aairku. Ippo unga return balance: ₹${payout}. Week innum iruku, so correct-ah target lock pannunga.`,
+    finalComplete: (payout) =>
+      `${config.pledgeDays}/${config.pledgeDays} days complete! Super, ₹${payout} full-ah ungaluku credit aairum. Sonna madhiri panni kaateeteenga. Proud of you.`,
+    finalPartial: (days, payout) =>
+      `${config.pledgeDays} days-la ${days} days counted. ₹${payout} return aagum. Keep going, continuous progress scale is better.`,
+    missedYesterday: () => "Nethu check-in varala — andha day-a slip-ah mark pannittu proceed panren. Heavy lecture illa, iniku new day target.",
+    waitForPrompt: () => "Neenga all set — everyday unga check-in time-la remind panren. Ippo verum wait pannunga.",
   },
   ta: {
     depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
@@ -182,6 +235,7 @@ function t(language, key, ...args) {
 }
 
 function fallbackAck(language) {
+  if (language === 'tl') return 'Sure!';
   if (language === 'ta') return 'சரி!';
   if (language === 'hi') return 'ठीक है!';
   return 'Got it!';
