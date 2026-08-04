@@ -45,6 +45,15 @@ for (const [column, sql] of checkinColumnMigrations) {
   if (!existingCheckinColumns.has(column)) db.exec(sql);
 }
 
+const existingChatMessageColumns = new Set(db.prepare('PRAGMA table_info(chat_messages)').all().map((c) => c.name));
+const chatMessageColumnMigrations = [
+  ['phone', 'ALTER TABLE chat_messages ADD COLUMN phone TEXT'],
+];
+for (const [column, sql] of chatMessageColumnMigrations) {
+  if (!existingChatMessageColumns.has(column)) db.exec(sql);
+}
+db.exec('CREATE INDEX IF NOT EXISTS idx_chat_messages_phone ON chat_messages(phone);');
+
 // We no longer force activity = 'gym' on startup or insert so users can choose running/walking/cycling.
 
 function getUserByPhone(phone) {
@@ -167,7 +176,12 @@ function getBurnedCaloriesLogsToday(userId, date) {
 }
 
 function saveChatMessage(userId, role, text) {
-  db.prepare('INSERT INTO chat_messages (user_id, role, text) VALUES (?, ?, ?)').run(userId, role, text);
+  let phone = null;
+  const user = getUserById(userId);
+  if (user) {
+    phone = user.phone;
+  }
+  db.prepare('INSERT INTO chat_messages (user_id, phone, role, text) VALUES (?, ?, ?, ?)').run(userId, phone, role, text);
 }
 
 function getChatMessages(userId, limit = 15) {

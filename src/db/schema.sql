@@ -79,6 +79,7 @@ CREATE INDEX IF NOT EXISTS idx_burned_user_date ON burned_calories_logs(user_id,
 CREATE TABLE IF NOT EXISTS chat_messages (
   id            INTEGER PRIMARY KEY AUTOINCREMENT,
   user_id       INTEGER NOT NULL REFERENCES users(id),
+  phone         TEXT,
   role          TEXT NOT NULL,              -- 'user' | 'model'
   text          TEXT NOT NULL,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
