@@ -2,7 +2,7 @@ CREATE TABLE IF NOT EXISTS users (
   id                  INTEGER PRIMARY KEY AUTOINCREMENT,
   phone               TEXT UNIQUE NOT NULL,
   name                TEXT,
-  language             TEXT DEFAULT 'en',
+  language            TEXT DEFAULT 'en',
   activity            TEXT,
   days_per_week       INTEGER,
   checkin_time        TEXT,                 -- 'HH:MM' 24h, in the program timezone
@@ -19,6 +19,19 @@ CREATE TABLE IF NOT EXISTS users (
   last_prompted_date  TEXT,
   last_weekly_summary_date TEXT,
   poster_path         TEXT,
+  current_gesture     TEXT,
+  onboarding_history  TEXT DEFAULT '[]',
+  tier                TEXT DEFAULT 'free',  -- free | pro_120 | pro_350
+  height              REAL,
+  weight              REAL,
+  target_calories     INTEGER,
+  target_muscle       TEXT,
+  allergy             TEXT,
+  timetable           TEXT,
+  goal                TEXT,
+  water_reminders_sent TEXT,
+  workout_reminded_date TEXT,
+  workout_acknowledged_date TEXT,
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -30,7 +43,45 @@ CREATE TABLE IF NOT EXISTS checkins (
   photo_ref     TEXT,                       -- twilio media URL (or local test path)
   status        TEXT NOT NULL DEFAULT 'pending',  -- pending | accepted | failed | missed
   gemini_reason TEXT,
+  photo_hash    TEXT,
+  gesture       TEXT,
   created_at    TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
 CREATE INDEX IF NOT EXISTS idx_checkins_user_date ON checkins(user_id, date);
+
+CREATE TABLE IF NOT EXISTS nutrition_logs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  date          TEXT NOT NULL,              -- YYYY-MM-DD
+  food_item     TEXT NOT NULL,
+  weight_g      REAL,
+  calories      INTEGER NOT NULL,
+  protein       REAL,
+  carbs         REAL,
+  fat           REAL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_nutrition_user_date ON nutrition_logs(user_id, date);
+
+CREATE TABLE IF NOT EXISTS burned_calories_logs (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id         INTEGER NOT NULL REFERENCES users(id),
+  date            TEXT NOT NULL,            -- YYYY-MM-DD
+  activity_name   TEXT NOT NULL,
+  calories_burned INTEGER NOT NULL,
+  created_at      TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_burned_user_date ON burned_calories_logs(user_id, date);
+
+CREATE TABLE IF NOT EXISTS chat_messages (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  role          TEXT NOT NULL,              -- 'user' | 'model'
+  text          TEXT NOT NULL,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);

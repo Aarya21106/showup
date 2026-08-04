@@ -2,6 +2,7 @@ const express = require('express');
 const path = require('path');
 const config = require('./config');
 require('./db/db'); // initializes the DB and applies schema on first import
+require('./services/whatsapp'); // starts the WhatsApp client connection using Baileys
 
 const landingRouter = require('./routes/landing');
 const webhookRouter = require('./routes/webhook');
@@ -21,13 +22,13 @@ app.listen(config.port, () => {
   console.log(`ShowUp listening on http://localhost:${config.port}`);
 
   if (!config.publicBaseUrl) {
-    console.warn('[config] PUBLIC_BASE_URL is not set - poster images will not be fetchable by Twilio. Set it to your ngrok/deployed URL in .env.');
+    console.warn('[config] PUBLIC_BASE_URL is not set - poster images will not be viewable by recipients. Set it to your ngrok/deployed URL in .env.');
   }
   if (!config.geminiConfigured) {
     console.warn('[config] GEMINI_API_KEY is not set - conversational replies and photo verification will fail until you add one.');
   }
-  if (!config.twilioConfigured) {
-    console.warn('[config] TWILIO_ACCOUNT_SID/TWILIO_AUTH_TOKEN not set - running in MOCK mode: outgoing WhatsApp messages are logged to the console instead of actually sent.');
+  if (process.env.MOCK_WHATSAPP === 'true') {
+    console.warn('[config] Running in MOCK mode: outgoing WhatsApp messages are logged to the console instead of actually sent.');
   }
   if (!config.paymentLinkUrl) {
     console.warn('[config] PAYMENT_LINK_URL is not set - the deposit step will skip sending a payment link.');

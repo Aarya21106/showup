@@ -2,25 +2,10 @@ const states = require('./states');
 const messages = require('./messages');
 const db = require('../db/db');
 const gemini = require('../services/gemini');
-const twilio = require('../services/twilio');
+const whatsapp = require('../services/whatsapp');
 const poster = require('../services/poster');
 const config = require('../config');
-const { parseTime } = require('../utils/time');
 const { todayStr } = require('../utils/date');
-
-async function askNext(phone, nextQuestion, justAskedQuestion, answer, language, name) {
-  const ack = await gemini.acknowledgeAnswer({ question: justAskedQuestion, answer, language, name }).catch(() => null);
-  const text = ack ? `${ack}\n\n${nextQuestion}` : `${messages.fallbackAck(language)}\n\n${nextQuestion}`;
-  await twilio.sendText(phone, text);
-}
-
-// Best-effort extraction of a 1-10 commitment number from free text ("9", "an 8 honestly",
-// "10/10"). Falls back to a reasonable default rather than blocking the flow on a parse miss.
-function parseScore(text) {
-  const match = (text || '').match(/\d{1,2}/);
-  if (!match) return 8;
-  return Math.max(1, Math.min(10, parseInt(match[0], 10)));
-}
 
 async function sendPlanAndDepositAsk(user) {
   const { publicUrl } = await poster.renderPlanPoster({
@@ -32,8 +17,8 @@ async function sendPlanAndDepositAsk(user) {
     blocker: user.blocker_text,
   });
 
-  await twilio.sendMedia(user.phone, `${user.name}, here's your pledge.`, publicUrl);
-  await twilio.sendText(user.phone, messages.t(user.language, 'depositAsk', {
+  await whatsapp.sendMedia(user.phone, `${user.name}, here's your pledge.`, publicUrl);
+  await whatsapp.sendText(user.phone, messages.t(user.language, 'depositAsk', {
     name: user.name,
     amt: config.depositAmountInr,
     refund: config.fullPayoutInr,
@@ -43,9 +28,9 @@ async function sendPlanAndDepositAsk(user) {
     vision: user.vision_text,
     score: user.commitment_score,
   }));
-  await twilio.sendText(user.phone, messages.t(user.language, 'howItWorks'));
+  await whatsapp.sendText(user.phone, messages.t(user.language, 'howItWorks'));
   if (config.paymentLinkUrl) {
-    await twilio.sendText(user.phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
+    await whatsapp.sendText(user.phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
   } else {
     console.warn('PAYMENT_LINK_URL is not set - skipped sending payment link to', user.phone);
   }
@@ -54,77 +39,157 @@ async function sendPlanAndDepositAsk(user) {
 async function handleOnboarding(user, body) {
   const phone = user.phone;
 
-  switch (user.state) {
-    case states.ONBOARD_NAME: {
-      const name = body.trim().slice(0, 60) || 'friend';
-      db.updateUser(user.id, { name, state: states.ONBOARD_LANGUAGE });
-      await askNext(phone, messages.question('en', 'language'), messages.question('en', 'name'), body, 'en', name);
-      break;
+  if (user.state === states.AWAITING_PAYMENT) {
+    if (/\bpaid\b/i.test(body)) {
+      const today = todayStr(config.timezone);
+      db.updateUser(user.id, {
+        deposit_status: 'paid', started_at: today, day_count: 0, state: states.AWAITING_TIMETABLE,
+      });
+      await whatsapp.sendText(phone, "Payment confirmed! 🎉 Now, let's set up your weekly schedule so I can remind you. What is your fitness goal? (e.g. Gain Muscle, Lose Weight, Cardio, General Fitness) and what time do you usually workout?");
+    } else {
+      await whatsapp.sendText(phone, messages.t(user.language, 'notPaidYet'));
     }
+    return;
+  }
 
-    case states.ONBOARD_LANGUAGE: {
-      const language = messages.detectLanguage(body);
-      db.updateUser(user.id, { language, state: states.ONBOARD_ACTIVITY });
-      await askNext(phone, messages.question(language, 'activity'), messages.question('en', 'language'), body, language, user.name);
-      break;
+  if (user.state === states.AWAITING_TIMETABLE) {
+    await handleTimetableSetup(user, body);
+    return;
+  }
+
+  // Construct current profile for checklist
+  const currentProfile = {
+    name: user.name || null,
+    language: user.language || null,
+    activity: user.activity || null,
+    tier: user.tier || null,
+    days_per_week: user.days_per_week !== null && user.days_per_week !== undefined ? user.days_per_week : null,
+    checkin_time: user.checkin_time || null,
+    blocker_text: user.blocker_text || null,
+    vision_text: user.vision_text || null,
+    commitment_score: user.commitment_score !== null && user.commitment_score !== undefined ? user.commitment_score : null,
+    allergy: user.allergy || null,
+    height: user.height !== null && user.height !== undefined ? user.height : null,
+    weight: user.weight !== null && user.weight !== undefined ? user.weight : null,
+    target_muscle: user.target_muscle || null,
+  };
+
+  // Parse existing onboarding history
+  let history = [];
+  try {
+    history = JSON.parse(user.onboarding_history || '[]');
+  } catch (err) {
+    history = [];
+  }
+
+  let result;
+  try {
+    result = await gemini.conductOnboardingInterview({
+      currentProfile,
+      message: body.trim(),
+      history,
+    });
+  } catch (err) {
+    console.error('Error conducting onboarding interview:', err);
+    await whatsapp.sendText(phone, "Sorry, I had a small hiccup. Can you say that again?");
+    return;
+  }
+
+  const { extracted, reply } = result;
+
+  // Update history
+  history.push({ role: 'user', text: body.trim() });
+  history.push({ role: 'model', text: reply });
+  if (history.length > 10) {
+    history = history.slice(-10);
+  }
+
+  // Merge extracted fields and build the updated profile
+  const fieldsToUpdate = {
+    onboarding_history: JSON.stringify(history),
+  };
+  for (const key of Object.keys(currentProfile)) {
+    if (extracted[key] !== undefined && extracted[key] !== null && extracted[key] !== '') {
+      fieldsToUpdate[key] = extracted[key];
     }
+  }
 
-    case states.ONBOARD_ACTIVITY: {
-      db.updateUser(user.id, { activity: body.trim().slice(0, 120), state: states.ONBOARD_DAYS });
-      await askNext(phone, messages.question(user.language, 'days'), messages.question(user.language, 'activity'), body, user.language, user.name);
-      break;
-    }
+  let updatedUser = user;
+  if (Object.keys(fieldsToUpdate).length > 0) {
+    updatedUser = db.updateUser(user.id, fieldsToUpdate);
+  }
 
-    case states.ONBOARD_DAYS: {
-      db.updateUser(user.id, { days_per_week: body.trim().slice(0, 60), state: states.ONBOARD_TIME });
-      await askNext(phone, messages.question(user.language, 'time'), messages.question(user.language, 'days'), body, user.language, user.name);
-      break;
-    }
+  const isPro = updatedUser.tier && updatedUser.tier.startsWith('pro');
+  const hasProFields = !isPro || (
+    updatedUser.height !== null && updatedUser.height !== undefined &&
+    updatedUser.weight !== null && updatedUser.weight !== undefined &&
+    updatedUser.target_muscle
+  );
 
-    case states.ONBOARD_TIME: {
-      const checkinTime = parseTime(body);
-      db.updateUser(user.id, { checkin_time: checkinTime, state: states.ONBOARD_BLOCKER });
-      await askNext(phone, messages.question(user.language, 'blocker'), messages.question(user.language, 'time'), body, user.language, user.name);
-      break;
-    }
+  // Check if all required fields are collected
+  const isProfileComplete = 
+    updatedUser.name &&
+    updatedUser.language &&
+    updatedUser.activity &&
+    updatedUser.tier &&
+    updatedUser.days_per_week !== null &&
+    updatedUser.days_per_week !== undefined &&
+    updatedUser.checkin_time &&
+    updatedUser.blocker_text &&
+    updatedUser.vision_text &&
+    updatedUser.commitment_score !== null &&
+    updatedUser.commitment_score !== undefined &&
+    updatedUser.allergy !== null &&
+    updatedUser.allergy !== undefined &&
+    hasProFields;
 
-    case states.ONBOARD_BLOCKER: {
-      const blocker = body.trim().slice(0, 200);
-      db.updateUser(user.id, { blocker_text: blocker, state: states.ONBOARD_VISION });
-      await askNext(phone, messages.question(user.language, 'vision'), messages.question(user.language, 'blocker'), body, user.language, user.name);
-      break;
-    }
-
-    case states.ONBOARD_VISION: {
-      const vision = body.trim().slice(0, 200);
-      db.updateUser(user.id, { vision_text: vision, state: states.ONBOARD_COMMITMENT });
-      await askNext(phone, messages.question(user.language, 'commitment'), messages.question(user.language, 'vision'), body, user.language, user.name);
-      break;
-    }
-
-    case states.ONBOARD_COMMITMENT: {
-      const score = parseScore(body);
-      const updated = db.updateUser(user.id, { commitment_score: score, state: states.AWAITING_PAYMENT });
-      await sendPlanAndDepositAsk(updated);
-      break;
-    }
-
-    case states.AWAITING_PAYMENT: {
-      if (/\bpaid\b/i.test(body)) {
-        const today = todayStr(config.timezone);
-        db.updateUser(user.id, {
-          deposit_status: 'paid', started_at: today, day_count: 0, state: states.ACTIVE,
-        });
-        await twilio.sendText(phone, messages.t(user.language, 'paidConfirmed', user.checkin_time));
-      } else {
-        await twilio.sendText(phone, messages.t(user.language, 'notPaidYet'));
-      }
-      break;
-    }
-
-    default:
-      break;
+  if (isProfileComplete) {
+    const updated = db.updateUser(user.id, { state: states.AWAITING_PAYMENT, onboarding_history: '[]' });
+    await sendPlanAndDepositAsk(updated);
+  } else {
+    await whatsapp.sendText(phone, reply);
   }
 }
 
-module.exports = { handleOnboarding, sendPlanAndDepositAsk };
+async function handleTimetableSetup(user, body) {
+  const phone = user.phone;
+  let currentTimetable = null;
+  try {
+    currentTimetable = JSON.parse(user.timetable);
+  } catch (err) {
+    currentTimetable = null;
+  }
+
+  try {
+    const chatHistory = db.getChatMessages(user.id, 20);
+    const result = await gemini.conductTimetableInterview({
+      currentTimetable,
+      message: body.trim(),
+      goal: user.goal,
+      activity: user.activity,
+      language: user.language,
+      chatHistory,
+      daysPerWeek: user.days_per_week,
+      checkinTime: user.checkin_time
+    });
+
+    const fieldsToUpdate = {
+      timetable: JSON.stringify(result.timetable),
+      goal: result.goal
+    };
+
+    if (result.confirmed) {
+      fieldsToUpdate.state = states.ACTIVE;
+      db.updateUser(user.id, fieldsToUpdate);
+      await whatsapp.sendText(phone, messages.t(user.language, 'paidConfirmed', user.checkin_time));
+    } else {
+      db.updateUser(user.id, fieldsToUpdate);
+      await whatsapp.sendText(phone, result.reply);
+    }
+  } catch (err) {
+    console.error('Error in handleTimetableSetup:', err);
+    await whatsapp.sendText(phone, "Sorry, I had trouble parsing that. Could you describe your target days and timings again?");
+  }
+}
+
+module.exports = { handleOnboarding, sendPlanAndDepositAsk, handleTimetableSetup };

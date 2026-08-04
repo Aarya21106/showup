@@ -1,19 +1,16 @@
-require('dotenv').config();
+require('dotenv').config({ override: true });
 
 const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
 
-  twilio: {
-    accountSid: process.env.TWILIO_ACCOUNT_SID || '',
-    authToken: process.env.TWILIO_AUTH_TOKEN || '',
-    from: process.env.TWILIO_WHATSAPP_FROM || 'whatsapp:+14155238886',
-    sandboxCode: process.env.TWILIO_SANDBOX_CODE || '',
+  whatsapp: {
+    from: process.env.WHATSAPP_FROM || 'whatsapp:+919500665712',
   },
 
   gemini: {
     apiKey: process.env.GEMINI_API_KEY || '',
-    model: process.env.GEMINI_MODEL || 'gemini-2.0-flash',
+    model: process.env.GEMINI_MODEL || 'gemini-3.5-flash-lite',
   },
 
   paymentLinkUrl: process.env.PAYMENT_LINK_URL || '',
@@ -30,7 +27,24 @@ const config = {
   slipPenaltyInr: parseInt(process.env.SLIP_PENALTY_INR || '50', 10),
 };
 
-config.twilioConfigured = Boolean(config.twilio.accountSid && config.twilio.authToken);
-config.geminiConfigured = Boolean(config.gemini.apiKey);
+const isPlaceholder = (val) => {
+  if (!val) return true;
+  const lower = val.toLowerCase();
+  return (
+    lower.includes('placeholder') ||
+    lower.includes('your_') ||
+    lower.includes('change-me') ||
+    lower.includes('xxxxxx')
+  );
+};
+
+config.whatsappConfigured = Boolean(
+  config.whatsapp.from
+);
+config.geminiConfigured = Boolean(
+  config.gemini.apiKey &&
+  !isPlaceholder(config.gemini.apiKey)
+);
 
 module.exports = config;
+

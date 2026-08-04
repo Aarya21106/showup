@@ -6,12 +6,15 @@ const path = require('path');
 const fs = require('fs');
 const readline = require('readline');
 
+process.env.MOCK_WHATSAPP = 'true';
+
+
 const { handleIncomingMessage } = require('../src/conversation/router');
 const db = require('../src/db/db');
 
 const TEST_PHONE = process.env.SIMULATE_PHONE || 'whatsapp:+911234567890';
 
-console.log('=== ShowUp local simulator ===');
+console.log('=== ShowUp local simulator v2 (space-path-support) ===');
 console.log(`Simulating WhatsApp user: ${TEST_PHONE}`);
 console.log('(set SIMULATE_PHONE=whatsapp:+91... to run a second parallel test user)\n');
 console.log('Type replies as the user would on WhatsApp. Commands:');
@@ -29,8 +32,16 @@ function send(body, media) {
 async function resetUser() {
   const user = db.getUserByPhone(TEST_PHONE);
   if (user) {
-    db.db.prepare('DELETE FROM checkins WHERE user_id = ?').run(user.id);
-    db.db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    db.db.exec('PRAGMA foreign_keys = OFF;');
+    try {
+      db.db.prepare('DELETE FROM checkins WHERE user_id = ?').run(user.id);
+      db.db.prepare('DELETE FROM nutrition_logs WHERE user_id = ?').run(user.id);
+      db.db.prepare('DELETE FROM burned_calories_logs WHERE user_id = ?').run(user.id);
+      db.db.prepare('DELETE FROM chat_messages WHERE user_id = ?').run(user.id);
+      db.db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
+    } finally {
+      db.db.exec('PRAGMA foreign_keys = ON;');
+    }
     console.log('(test user reset)\n');
   }
   // Re-send the "join" trigger so the very next line you type is treated as the
@@ -45,9 +56,47 @@ function mimeTypeFor(ext) {
 }
 
 async function handlePhotoCommand(rest) {
-  const firstSpace = rest.indexOf(' ');
-  const imgPath = firstSpace === -1 ? rest : rest.slice(0, firstSpace);
-  const caption = firstSpace === -1 ? '' : rest.slice(firstSpace + 1).trim();
+  let imgPath = '';
+  let caption = '';
+
+  if (rest.startsWith('"')) {
+    const nextQuote = rest.indexOf('', 1); // wait, let's find matching quote index
+    const endQuote = rest.indexOf('"', 1);
+    if (endQuote !== -1) {
+      imgPath = rest.slice(1, endQuote);
+      caption = rest.slice(endQuote + 1).trim();
+    } else {
+      imgPath = rest;
+    }
+  } else if (rest.startsWith("'")) {
+    const endQuote = rest.indexOf("'", 1);
+    if (endQuote !== -1) {
+      imgPath = rest.slice(1, endQuote);
+      caption = rest.slice(endQuote + 1).trim();
+    } else {
+      imgPath = rest;
+    }
+  } else {
+    // Look for standard image extension to split path from caption
+    const extensions = ['.png', '.jpg', '.jpeg', '.webp'];
+    let splitIdx = -1;
+    for (const ext of extensions) {
+      const idx = rest.toLowerCase().indexOf(ext);
+      if (idx !== -1) {
+        splitIdx = idx + ext.length;
+        break;
+      }
+    }
+    if (splitIdx !== -1) {
+      imgPath = rest.slice(0, splitIdx).trim();
+      caption = rest.slice(splitIdx).trim();
+    } else {
+      const firstSpace = rest.indexOf(' ');
+      imgPath = firstSpace === -1 ? rest : rest.slice(0, firstSpace);
+      caption = firstSpace === -1 ? '' : rest.slice(firstSpace + 1).trim();
+    }
+  }
+
   const resolved = path.resolve(process.cwd(), imgPath);
 
   if (!fs.existsSync(resolved)) {
@@ -57,7 +106,7 @@ async function handlePhotoCommand(rest) {
 
   const base64 = fs.readFileSync(resolved).toString('base64');
   const mimeType = mimeTypeFor(path.extname(resolved).toLowerCase());
-  await send(caption, { testBase64: base64, mimeType });
+  await send(caption, { testBase64: base64, mimeType, localPath: resolved });
 }
 
 async function handleLine(trimmed) {

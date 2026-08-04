@@ -6,6 +6,7 @@ const router = express.Router();
 // Twilio posts application/x-www-form-urlencoded. The webhook mount in index.js
 // already applies express.urlencoded, but we keep this explicit for standalone testing.
 router.post('/whatsapp', express.urlencoded({ extended: false }), async (req, res) => {
+  console.log('[Webhook] POST /webhook/whatsapp received. Body:', req.body);
   try {
     const from = req.body.From; // 'whatsapp:+919876543210'
     const body = req.body.Body || '';

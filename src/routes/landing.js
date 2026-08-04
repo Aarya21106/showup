@@ -5,8 +5,8 @@ const config = require('../config');
 const router = express.Router();
 
 function buildWhatsAppLink() {
-  const rawNumber = config.twilio.from.replace('whatsapp:', '').replace(/[^\d+]/g, '').replace('+', '');
-  const joinText = config.twilio.sandboxCode ? `join ${config.twilio.sandboxCode}` : '';
+  const rawNumber = config.whatsapp.from.replace('whatsapp:', '').replace(/[^\d+]/g, '').replace('+', '');
+  const joinText = config.whatsapp.sandboxCode ? `join ${config.whatsapp.sandboxCode}` : '';
   const query = joinText ? `?text=${encodeURIComponent(joinText)}` : '';
   return `https://wa.me/${rawNumber}${query}`;
 }
