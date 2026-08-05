@@ -780,6 +780,66 @@ Keep it under 30 words. One sentence, maybe two max.`;
   }
 }
 
+/**
+ * Dynamic Q&A during AWAITING_PAYMENT state:
+ * Answers user questions about terms & conditions, refundable deposit, platform fee,
+ * 2 free strikes, slip penalties, 14-day free trial, and differences between
+ * Standard (₹119/mo) and Pro (₹239/mo) plans.
+ */
+async function answerPaymentAndTermsQuery({ user, message, history }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const historyString = (history || []).map(h => `${h.role === 'user' ? 'User' : 'Bot'}: ${h.text}`).join('\n') || '(no prior history)';
+  const coachCtx = user ? buildCoachContext(user) : '';
+
+  const prompt = `You are ShowUp, a direct, friendly fitness coach on WhatsApp.
+The user is currently at the payment / pledge lock-in step of onboarding. They are asking a question about the plans, terms, deposit, pricing, differences between plans, or where we left off.
+${coachCtx}
+
+=== SHOWUP PRICING & TERMS MASTER REFERENCE ===
+1. 🎁 14-Day Free Trial: First 14 days have ZERO subscription charges. Users pay only a ₹300 refundable deposit to lock in.
+2. 💰 Refundable Deposit: ₹300 (${config.depositAmountInr} INR).
+3. ⚙️ Platform Fee: ₹25 (${config.platformFeeInr} INR) charged for platform administration and server infrastructure, leaving a base refund pool of ₹275 (${config.fullPayoutInr} INR).
+4. 🛡️ 2 Free Strikes Grace Rule: If the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty!).
+5. ⚠️ Slip Penalty: Beyond free strikes, each missed workout deducts ₹50 (${config.slipPenaltyInr} INR) from their ₹275 refund balance (floored at ₹0).
+6. 📋 Standard Plan vs Pro Plan (Starting Month 2):
+   - Standard Plan (₹119/month base):
+     * Includes daily photo check-in verification by AI, deposit protection, streak tracking, weekly progress summaries, accountability reminders.
+     * Streak Discount: Clean week (0 slips) earns ₹10 off per week (up to ₹40 off = ₹79/month!).
+   - Pro Plan (₹239/month base):
+     * Includes EVERYTHING in Standard + AI-customized daily workout routines (upper body, lower body, glutes, push/pull/legs, cardio), muscle focus group guidance (chest, legs, shoulders, etc.), nutrition & calorie budget guidance, and personalized exercise coaching.
+     * Streak Discount: Clean week (0 slips) earns ₹10 off per week (up to ₹40 off = ₹199/month!).
+
+=== USER CONTEXT ===
+Name: ${user.name || 'Friend'}
+Language Preference: ${langName}
+Committed Activity: ${user.activity || 'Gym'} (${user.days_per_week || 4} days/week at ${user.checkin_time || '07:00'})
+Blocker: "${user.blocker_text || 'laziness'}"
+Vision: "${user.vision_text || 'muscle gain'}"
+Selected Plan: ${user.tier || 'free'}
+
+Recent Chat History:
+${historyString}
+
+User's Latest Message: "${message}"
+
+INSTRUCTIONS:
+1. Answer the user's question clearly, accurately, and naturally in their language (${langName}).
+   - If they ask in Tanglish ('tl'), respond in casual, natural Tanglish using English/Latin alphabet.
+   - If they ask in Hinglish ('hl'), respond in casual, natural Hinglish using English/Latin alphabet.
+   - If they ask about the difference between ₹119 and ₹239 plans, clearly explain that ₹119 is standard accountability + AI check-ins, while ₹239 adds AI daily workout routines, exercise advice & diet guidance. Mention both get up to ₹40/mo streak discounts (₹79 & ₹199).
+   - If they ask about terms/deposit/strikes, explain the ₹300 deposit, ₹25 fee (₹275 base refund), 2 free strikes for >10 days, and ₹50 penalty.
+2. Keep your answer friendly, direct, and conversational (max 90 words).
+3. Always wrap up by reminding them that replying "paid" after paying the ₹300 deposit starts their 14-day free trial and 30-day pledge.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.5 });
+    return text.trim();
+  } catch (err) {
+    console.error('[Gemini] answerPaymentAndTermsQuery error:', err);
+    return null;
+  }
+}
+
 module.exports = {
   GeminiError,
   acknowledgeAnswer,
@@ -799,4 +859,5 @@ module.exports = {
   generateDailySummary,
   extractPersonalizationSignals,
   generateFollowUpNudge,
+  answerPaymentAndTermsQuery,
 };

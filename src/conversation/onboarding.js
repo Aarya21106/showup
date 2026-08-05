@@ -47,7 +47,12 @@ async function handleOnboarding(user, body) {
       });
       await whatsapp.sendText(phone, "Payment confirmed! 🎉 Now, let's set up your weekly schedule so I can remind you. What is your fitness goal? (e.g. Gain Muscle, Lose Weight, Cardio, General Fitness) and what time do you usually workout?");
     } else {
-      await whatsapp.sendText(phone, messages.t(user.language, 'notPaidYet'));
+      const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: body, history: [] });
+      if (aiReply) {
+        await whatsapp.sendText(phone, aiReply);
+      } else {
+        await whatsapp.sendText(phone, messages.t(user.language, 'notPaidYet'));
+      }
     }
     return;
   }
