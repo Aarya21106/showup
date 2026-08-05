@@ -161,4 +161,14 @@ rl.on('close', () => {
   if (!draining && queue.length === 0) process.exit(0);
 });
 
-send('Hi').then(() => rl.prompt());
+async function initSimulator() {
+  const existing = db.getUserByPhone(TEST_PHONE);
+  if (!existing) {
+    await send('Hi');
+  } else {
+    console.log(`[Simulator] Loaded existing test user: ${existing.name || 'Unnamed'} (State: ${existing.state}, Streak: ${existing.streak})\n`);
+  }
+  rl.prompt();
+}
+
+initSimulator();
