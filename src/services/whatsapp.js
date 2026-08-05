@@ -135,7 +135,9 @@ async function connectToWhatsApp() {
           console.error('[WhatsApp] Failed to request pairing code:', err.message);
           pairingCodeRequested = false;
         }
-      } else if (!usePairingCode) {
+      }
+      
+      if (!usePairingCode) {
         console.log('\n==================================================');
         console.log('   SCAN THIS QR CODE WITH YOUR WHATSAPP TO LINK   ');
         console.log('==================================================');
