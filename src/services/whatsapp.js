@@ -92,6 +92,8 @@ async function connectToWhatsApp() {
     pairingPhone = '91' + pairingPhone; // Auto-prefix India country code
   }
 
+  let pairingCodeRequested = false;
+
   sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
@@ -105,31 +107,31 @@ async function connectToWhatsApp() {
 
   sock.ev.on('creds.update', saveCreds);
 
-  if (usePairingCode && pairingPhone && !sock.authState.creds.registered) {
-    console.log(`[WhatsApp] Requesting pairing code for phone: +${pairingPhone}...`);
-    setTimeout(async () => {
-      try {
-        const code = await sock.requestPairingCode(pairingPhone);
-        const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
-        console.log('\n==================================================');
-        console.log(`   YOUR WHATSAPP PAIRING CODE FOR +${pairingPhone} IS: ${formattedCode}   `);
-        console.log('   Enter this on your phone under Linked Devices  ');
-        console.log('==================================================\n');
-      } catch (err) {
-        console.error('[WhatsApp] Failed to request pairing code:', err.stack || err.message);
-      }
-    }, 4000);
-  }
-
-  sock.ev.on('connection.update', (update) => {
+  sock.ev.on('connection.update', async (update) => {
     const { connection, lastDisconnect, qr } = update;
 
-    if (qr && !usePairingCode) {
-      console.log('\n==================================================');
-      console.log('   SCAN THIS QR CODE WITH YOUR WHATSAPP TO LINK   ');
-      console.log('==================================================');
-      qrcode.generate(qr, { small: true });
-      console.log('==================================================\n');
+    if (qr) {
+      if (usePairingCode && pairingPhone && !pairingCodeRequested) {
+        pairingCodeRequested = true;
+        try {
+          console.log(`[WhatsApp] Requesting pairing code for phone: +${pairingPhone}...`);
+          const code = await sock.requestPairingCode(pairingPhone);
+          const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
+          console.log('\n==================================================');
+          console.log(`   YOUR WHATSAPP PAIRING CODE FOR +${pairingPhone} IS: ${formattedCode}   `);
+          console.log('   Enter this on your phone under Linked Devices  ');
+          console.log('==================================================\n');
+        } catch (err) {
+          console.error('[WhatsApp] Failed to request pairing code:', err.message);
+          pairingCodeRequested = false;
+        }
+      } else if (!usePairingCode) {
+        console.log('\n==================================================');
+        console.log('   SCAN THIS QR CODE WITH YOUR WHATSAPP TO LINK   ');
+        console.log('==================================================');
+        qrcode.generate(qr, { small: true });
+        console.log('==================================================\n');
+      }
     }
 
     if (connection === 'close') {
