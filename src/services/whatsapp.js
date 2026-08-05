@@ -96,7 +96,7 @@ async function connectToWhatsApp() {
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: !usePairingCode,
-    browser: Browsers ? Browsers.macOS('Desktop') : ['Mac OS', 'Chrome', '121.0.0'],
+    browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000,
@@ -116,9 +116,9 @@ async function connectToWhatsApp() {
         console.log('   Enter this on your phone under Linked Devices  ');
         console.log('==================================================\n');
       } catch (err) {
-        console.error('[WhatsApp] Failed to request pairing code:', err.message);
+        console.error('[WhatsApp] Failed to request pairing code:', err.stack || err.message);
       }
-    }, 3000);
+    }, 4000);
   }
 
   sock.ev.on('connection.update', (update) => {
