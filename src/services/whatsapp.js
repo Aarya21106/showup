@@ -34,7 +34,6 @@ if (process.env.MOCK_WHATSAPP === 'true') {
   return;
 }
 
-const { default: makeWASocket, useMultiFileAuthState, DisconnectReason } = require('@whiskeysockets/baileys');
 const qrcode = require('qrcode-terminal');
 const pino = require('pino');
 const path = require('path');
@@ -42,6 +41,17 @@ const fs = require('fs');
 
 let sock = null;
 let isConnected = false;
+let makeWASocket, useMultiFileAuthState, DisconnectReason;
+
+async function getBaileys() {
+  if (!makeWASocket) {
+    const baileys = await import('@whiskeysockets/baileys');
+    makeWASocket = baileys.default || baileys.makeWASocket;
+    useMultiFileAuthState = baileys.useMultiFileAuthState;
+    DisconnectReason = baileys.DisconnectReason;
+  }
+  return { makeWASocket, useMultiFileAuthState, DisconnectReason };
+}
 
 // Converts a Twilio-style JID ('whatsapp:+919500665712') to Baileys format ('919500665712@s.whatsapp.net')
 function toBaileysJid(whatsappPhone) {
@@ -68,6 +78,7 @@ function getLocalPath(mediaUrl) {
 }
 
 async function connectToWhatsApp() {
+  const { makeWASocket, useMultiFileAuthState, DisconnectReason } = await getBaileys();
   const authFolder = path.join(__dirname, '..', '..', 'auth_info_baileys');
   const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
