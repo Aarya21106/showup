@@ -134,20 +134,20 @@ async function connectToWhatsApp() {
 
     if (connection === 'close') {
       isConnected = false;
-      const statusCode = lastDisconnect.error?.output?.statusCode;
-      const shouldClear = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+      const statusCode = lastDisconnect?.error?.output?.statusCode;
+      const shouldClear = statusCode === DisconnectReason.loggedOut; // Only wipe on explicit phone logout (403)
       console.log(`[WhatsApp] Connection closed. Status: ${statusCode}. Clearing credentials? ${shouldClear}`);
       if (shouldClear) {
-        console.log('[WhatsApp] Wiping invalid/expired credentials folder...');
+        console.log('[WhatsApp] Explicit logout detected. Wiping credentials folder...');
         try {
           fs.rmSync(authFolder, { recursive: true, force: true });
         } catch (e) {
           console.error('[WhatsApp] Failed to delete session folder:', e.message);
         }
         console.log('[WhatsApp] Reconnecting with clean state...');
-        setTimeout(connectToWhatsApp, 1000);
+        setTimeout(connectToWhatsApp, 2000);
       } else {
-        console.log('[WhatsApp] Reconnecting in 3 seconds...');
+        console.log('[WhatsApp] Temporary disconnect. Reconnecting with existing session in 3 seconds...');
         setTimeout(connectToWhatsApp, 3000);
       }
     } else if (connection === 'open') {
