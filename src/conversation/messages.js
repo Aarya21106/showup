@@ -13,6 +13,12 @@ function getProofInstruction(lang, activity, gestureText) {
     if (activity === 'cycling') return `உங்கள் சைக்கிள் அல்லது டிராக்கருடன் ${gestureText}`;
     return `${gestureText}`;
   }
+  if (lang === 'hl') {
+    if (activity === 'gym') return `weights ke paas ${gestureText}`;
+    if (activity === 'running' || activity === 'walking') return `run/walk karte waqt ${gestureText} ya tracking app screenshot`;
+    if (activity === 'cycling') return `cycle ya tracker ke saath ${gestureText}`;
+    return `${gestureText}`;
+  }
   if (lang === 'hi') {
     if (activity === 'gym') return `वजन के साथ ${gestureText}`;
     if (activity === 'running' || activity === 'walking') return `रन/वॉक के दौरान ${gestureText} या अपने ट्रैकिंग ऐप के साथ`;
@@ -70,6 +76,7 @@ const QUESTIONS = {
 function detectLanguage(answer) {
   const a = (answer || '').toLowerCase();
   if (a.includes('tanglish') || a.includes('tanlish')) return 'tl';
+  if (a.includes('hinglish') || a.includes('hinlish')) return 'hl';
   if (a.includes('tamil') || a.includes('தமிழ்')) return 'ta';
   if (a.includes('hindi') || a.includes('हिंदी') || a.includes('हिन्दी')) return 'hi';
   return 'en';
@@ -240,6 +247,47 @@ const T = {
     missedYesterday: () => 'कल कोई चेक-इन नहीं आया — इसे चूक के तौर पर दर्ज कर आगे बढ़ रहे हैं। आज एक साफ शुरुआत है।',
     waitForPrompt: () => 'आप तैयार हैं — मैं रोज़ आपके समय पर मैसेज करूंगा। अभी कुछ करने की ज़रूरत नहीं।',
   },
+  hl: {
+    depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
+      `${name}, sach bolun toh — aapne bataya ki "${blocker}" ki wajah se aap pehle continue nahi kar paaye. Aur agar aapne yeh kar dikhaya toh ${vision}. Bas wahi gap yeh system close karega!\n\n` +
+      `Pricing, deposit aur free trial ka pura हिसाब clear hai, 100% transparent:\n` +
+      `🎁 Pehle 14 days: FREE ACCESS! Aaj bas ₹${amt} ka refundable deposit pay karke lock karo.\n` +
+      `⚙️ Terms: ₹25 platform fee ke baad ₹275 aapka base refund balance rahega.\n` +
+      `🛡️ 2 Free Strikes: Agar aapke monthly plan me >10 workout days hain, toh 2 days miss hone par ZERO penalty (2 Free Strikes!).\n` +
+      `⚠️ Slip Penalty: Free strikes ke baad har missed workout par ₹${penalty} deposit se cut honge.\n` +
+      `🔥 Weekly Streak Discounts (Month 2 se):\n` +
+      `   - Standard plan: Base ₹119/month → Har clean week par ₹10 discount (Max ₹40 off = ₹79/month!).\n` +
+      `   - Pro plan: Base ₹239/month → Har clean week par ₹10 discount (Max ₹40 off = ₹199/month!).\n\n` +
+      `14-day trial me koi extra charges nahi hain. Aapne commit score ${score}/10 bataya tha. Ready ho?`,
+    howItWorks: () =>
+      "Daily schedule: Main aapke daily check-in time par message karunga. Aapko 1 line update + todays gesture waali photo bhejni hai. AI photo verify karega. Consistent rehne par deposit return milega aur monthly plan par ₹40 tak discount bhi milega!",
+    paymentLink: (url) => `Ready? Apna ₹${config.depositAmountInr} deposit yahan pay karo: ${url}\n\nPay karke "paid" text kar do. Day 1 start karte hain!`,
+    notPaidYet: () => `Koi stress nahi — jab ready ho. ₹${config.depositAmountInr} deposit pay karke "paid" likho, 14-day free trial & 30-day pledge start ho jayega.`,
+    paidConfirmed: (time) => `Super, aap locked-in ho! \u{1F525} Aapka 14-day free trial active ho gaya hai. Main daily lagbhag ${time} baje message karunga. Day 1 starts now!`,
+    dailyPrompt: (activity, gestureText) => `Time to show up! Aaj ${activity} ke liye kya plan hai? Workout complete karke 1 line update + ${getProofInstruction('hl', activity, gestureText)} ki photo bhejo!`,
+    needPhoto: (gestureText, activity) => `Update badhiya hai — ab verify karne ke liye ${getProofInstruction('hl', activity || 'gym', gestureText)} waali photo bhi bhej do.`,
+    needGesturePhoto: (gestureText, activity) => `Aaj ka session verify karne ke liye, please ${getProofInstruction('hl', activity || 'gym', gestureText)} waali photo bhejo.`,
+    reminder: (gestureText, activity) => `Arey bhai, kuch bhool toh nahi rahe? 😅 Bas photo proof chahiye! ${getProofInstruction('hl', activity || 'gym', gestureText)} dikha kar photo bhej do.`,
+    'gesture_thumbs-up': 'thumbs-up sign',
+    'gesture_peace-sign': '2 fingers (peace sign)',
+    'gesture_three-fingers': '3 fingers showing',
+    'gesture_fist': 'fist showing',
+    'gesture_ok-sign': 'OK sign',
+    checkinAccepted: (streak, daysLeft) =>
+      `Logged and verified! \u{1F525} ${streak}-day streak. Abhi ${daysLeft} days baaki hain — keep going!`,
+    checkinFailedFinal: (reason) =>
+      `Check-in match nahi hua — ${reason} Yeh ek slip mark ho raha hai. Kal naya din hai, show up!`,
+    weeklyOnTrack: (streak, daysLeft, payout) =>
+      `Weekly update: ${streak}-day streak! Refund balance: ₹${payout}. Is week clean rehne ke liye ₹10 discount earn kar liya hai!`,
+    weeklySlipped: (missed, payout) =>
+      `Weekly update: total ${missed} slips hue hain. Refund balance: ₹${payout}. Aaj se wapas target lock karo!`,
+    finalComplete: (payout) =>
+      `${config.pledgeDays}/${config.pledgeDays} days complete! Super, ₹${payout} refund balance credit ho jayega (after ₹25 platform fee). Max ₹40 discount bhi unlock ho gaya (Standard: ₹79/mo, Pro: ₹199/mo)! Proud of you!`,
+    finalPartial: (days, payout) =>
+      `${config.pledgeDays} days me se ${days} days counted. ₹${payout} return balance milega. Great effort!`,
+    missedYesterday: () => "Kal check-in nahi आया — slip mark kar rahe hain. Koi lecture nahi, aaj naya din hai.",
+    waitForPrompt: () => "Aap all set ho — daily aapke time par remind karunga. Abhi bas wait karo.",
+  },
 };
 
 function t(language, key, ...args) {
@@ -250,6 +298,7 @@ function t(language, key, ...args) {
 
 function fallbackAck(language) {
   if (language === 'tl') return 'Sure!';
+  if (language === 'hl') return 'Ha bhai!';
   if (language === 'ta') return 'சரி!';
   if (language === 'hi') return 'ठीक है!';
   return 'Got it!';

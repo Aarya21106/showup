@@ -271,12 +271,8 @@ Respond ONLY with strict JSON, no markdown fences:
     return { accepted: Boolean(parsed.accepted), reason: parsed.reason || '' };
   } catch (err) {
     throw new GeminiError(`Could not parse Gemini JSON response: ${text}`);
-  }
-}
-
-/**
- * Dynamic onboarding checklist interview:
- * Receives current profile fields and the user's latest message,
+ * Runs the single-turn Gemini call during the onboarding interview.
+ * Evaluates the user's latest response against the onboarding checklist,
  * extracts any new information, answers any questions shortly, and
  * asks for the next missing information.
  */
@@ -290,7 +286,7 @@ ${coachCtx}
 
 We need to collect these fields for the user's checklist:
 1. "name": The user's name.
-2. "language": Preferred language (MUST be exactly one of 'en' for English, 'ta' for Tamil, 'hi' for Hindi, or 'tl' for Tanglish - Tamil written using Latin script).
+2. "language": Preferred language (MUST be exactly one of: 'en' for English, 'tl' for Tanglish - Tamil in Latin script, 'ta' for Pure Tamil script, 'hi' for Pure Hindi script, or 'hl' for Hinglish - Hindi in Latin script).
 3. "activity": The activity they commit to (MUST be exactly one of 'gym', 'running', 'walking', or 'cycling').
 4. "tier": Pricing plan preference. MUST be exactly one of 'free' (14-day free trial), 'pro_120' (Standard plan ₹119/month after 14 days, down to ₹79/mo with streak discounts), or 'pro_350' (Pro plan ₹239/month after 14 days with AI workouts & coaching, down to ₹199/mo with streak discounts).
 5. "days_per_week": How many days a week they commit to their activity (an integer between 1 and 7).
@@ -319,7 +315,12 @@ Instructions:
    - For "tier", extract it as exactly one of 'free', 'pro_120', or 'pro_350'. If they ask about plans: Explain that the first 14 days are FREE after paying the ₹300 refundable deposit. Month 2 onward is ₹119/mo for Standard (down to ₹79/mo with weekly streak discounts) or ₹239/mo for Pro (down to ₹199/mo with weekly streak discounts).
    - For "days_per_week", try to extract just the number (1-7).
    - For "checkin_time", format it strictly as "HH:MM" (24-hour, e.g. "07:00" or "18:30").
-   - For "language", if they specified English/Tamil/Hindi/Tanglish (or are typing in Tamil using Latin script), set it to "en"/"ta"/"hi"/"tl" respectively.
+   - For "language":
+     - If they type Tamil words in Latin/English script (e.g. "sari bro", "iniku", "pannalam"), set it to "tl" (Tanglish).
+     - If they type Hindi words in Latin/English script (e.g. "ha bhai", "karenge", "aaj ka done"), set it to "hl" (Hinglish).
+     - ONLY set "ta" if they type in native Tamil script (தமிழ்).
+     - ONLY set "hi" if they type in native Devanagari script (हिंदी).
+     - Set "en" if they type in standard English.
    - For "commitment_score", extract the number (1-10) or choose a reasonable default if they just say "very high" or "committed" (e.g., 9).
    - For "height" (REAL) and "weight" (REAL), extract them as numerical values (e.g. "170 cm" -> 170, "65 kg" -> 65) ONLY if the tier is 'pro_120' or 'pro_350'.
    - For "target_muscle", extract the muscle focus group (e.g., chest, legs, shoulders, core, full body) ONLY if the tier is 'pro_120' or 'pro_350'.
@@ -330,7 +331,7 @@ Instructions:
 {
   "extracted": {
     "name": string|null,
-    "language": "en"|"ta"|"hi"|"tl"|null,
+    "language": "en"|"ta"|"hi"|"tl"|"hl"|null,
     "activity": "gym"|"running"|"walking"|"cycling"|null,
     "tier": "free"|"pro_120"|"pro_350"|null,
     "days_per_week": number|null,
