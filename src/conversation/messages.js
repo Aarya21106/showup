@@ -26,8 +26,6 @@ function getProofInstruction(lang, activity, gestureText) {
   return `${gestureText}`;
 }
 
-// Q1 (name) and Q2 (language) are always asked in English - we don't know their
-// language yet. Everything from Q3 onward is localized.
 const QUESTIONS = {
   name: "Hey! I'm ShowUp — think of me as the buddy who makes sure you actually follow through this time. What should I call you?",
   language: 'What language do you want to chat in? English, Tamil, Hindi, or Tanglish — your call.',
@@ -81,16 +79,20 @@ const T = {
   en: {
     depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
       `${name}, real talk — you told me "${blocker}" is what's gotten you before. And you told me if you actually pulled this off, ${vision}. That gap right there? That's exactly what this closes.\n\n` +
-      `Here's exactly how the money works, no fine print:\n` +
-      `💰 You put down ₹${amt} today. That's the whole ask.\n` +
-      `✅ Show up and check in for all ${days} days, no fakes → you get ₹${refund} back. That's your ₹${amt} PLUS ₹${refund - amt} — you get paid to become the person you just said you'd be.\n` +
-      `⚠️ Miss a day, or fake a check-in → ₹${penalty} comes off your ₹${amt}, every single time. Enough slips and there's nothing left.\n\n` +
-      `That's it. No subscription, no hidden charges. The only way this costs you anything is by not showing up — and you just told me you're a ${score}/10 on wanting this.`,
+      `Here's how the deposit, pricing & free trial work (100% transparent):\n` +
+      `🎁 First 14 days: FREE ACCESS! You only pay a refundable deposit of ₹${amt} today to lock in.\n` +
+      `⚙️ Terms: A small ₹25 platform fee is charged, leaving a base refund balance of ₹275.\n` +
+      `🛡️ 2 Free Strikes: If your schedule has >10 workout days this month, you get 2 FREE STRIKES (miss 2 days with ZERO penalty!).\n` +
+      `⚠️ Slip Penalty: Beyond free strikes, each missed workout deducts ₹${penalty} from your deposit.\n` +
+      `🔥 Weekly Streak Discounts (Month 2 onward):\n` +
+      `   - Standard plan: Base ₹119/month → Earn ₹10 off per clean week (up to ₹40 off = ₹79/month!).\n` +
+      `   - Pro plan: Base ₹239/month → Earn ₹10 off per clean week (up to ₹40 off = ₹199/month!).\n\n` +
+      `No subscription charged during your 14-day trial. You just told me you're a ${score}/10 on wanting this. Ready to lock in?`,
     howItWorks: () =>
-      "Here's the day-to-day: I text you at your time, every day. You reply with what you did — a line of text, plus a photo. I actually look at that photo and check it against what you said and your history, so there's no bluffing your way through this. You show up, I hold you to it, you walk away with more than you put in.",
-    paymentLink: (url) => `Ready? Pay your ₹${config.depositAmountInr} here: ${url}\n\nOnce it's done, just text me "paid" and Day 1 starts. Let's go.`,
-    notPaidYet: () => `No stress — whenever you're ready. Pay the ₹${config.depositAmountInr}, text me "paid", and we start the clock on the ${config.pledgeDays} days that actually change this.`,
-    paidConfirmed: (time) => `That's it — you're locked in! \u{1F525} I'll text you every day around ${time}. Show up, send me what you did plus a photo, and let's prove it. Day 1 starts now.`,
+      "Here's the day-to-day: I text you at your check-in time every day. You reply with a line of text + a photo showing the daily gesture. I verify your photo with AI against your workout and history. Show up consistently, keep your deposit, and unlock up to ₹40 off your monthly subscription!",
+    paymentLink: (url) => `Ready? Pay your ₹${config.depositAmountInr} deposit here: ${url}\n\nOnce it's done, just text me "paid" and Day 1 starts. Let me know when you've paid!`,
+    notPaidYet: () => `No stress — whenever you're ready. Pay the ₹${config.depositAmountInr} deposit, text me "paid", and we start the clock on the 14-day free trial & 30-day pledge.`,
+    paidConfirmed: (time) => `That's it — you're locked in! \u{1F525} Your 14-day free trial is active. I'll text you every day around ${time}. Show up, send me what you did plus a photo, and let me know you're on track. Day 1 starts now!`,
     dailyPrompt: (activity, gestureText) => `Time to show up — what's the move today for ${activity}? Send me a quick line + a photo showing ${getProofInstruction('en', activity, gestureText)} when it's done. I know you've got this.`,
     needPhoto: (gestureText, activity) => `Love the update — now send me a photo too, showing ${getProofInstruction('en', activity || 'gym', gestureText)}, so I can check it in properly.`,
     needGesturePhoto: (gestureText, activity) => `To verify today's session, please send a photo showing the daily gesture: ${getProofInstruction('en', activity || 'gym', gestureText)}.`,
@@ -105,30 +107,34 @@ const T = {
     checkinFailedFinal: (reason) =>
       `That doesn't check out — ${reason} This one's a slip. Doesn't erase the rest — tomorrow's a clean day, show up.`,
     weeklyOnTrack: (streak, daysLeft, payout) =>
-      `Week check-in: ${streak}-day streak and still going. ${daysLeft} more day${daysLeft === 1 ? '' : 's'} to your ₹${payout} payout. This is exactly what showing up looks like.`,
+      `Week check-in: ${streak}-day streak and still going. ${daysLeft} more day${daysLeft === 1 ? '' : 's'} in your pledge. Current refund balance: ₹${payout}. You've also earned a ₹10 weekly discount for next month!`,
     weeklySlipped: (missed, payout) =>
-      `Week check-in: ${missed} slip${missed === 1 ? '' : 's'} so far. Current standing: ₹${payout} coming back. Plenty of week left to turn this around — today's a good day to start.`,
+      `Week check-in: ${missed} slip${missed === 1 ? '' : 's'} so far. Current refund balance: ₹${payout}. Plenty of time to turn this around — today's a good day to start.`,
     finalComplete: (payout) =>
-      `That's ${config.pledgeDays}/${config.pledgeDays} — every single day, no excuses. ₹${payout} coming back to you. You did the thing you said you couldn't. Proud of you.`,
+      `That's ${config.pledgeDays}/${config.pledgeDays} — every single day, no excuses! ₹${payout} coming back to you (after ₹25 platform fee). You also unlocked the MAX ₹40 discount for Month 2 (Standard: ₹79/mo, Pro: ₹199/mo)! Proud of you.`,
     finalPartial: (days, payout) =>
-      `${config.pledgeDays} days done, ${days} of them counted. ₹${payout} உங்களுக்குத் திரும்பும். However it went — you showed up more than you would've without this, and that's not nothing.`,
+      `${config.pledgeDays} days done, ${days} of them counted. ₹${payout} coming back to you. You showed up and stayed consistent!`,
     missedYesterday: () => "No check-in came in yesterday — marking it as a slip and moving on. No lecture, just: today's a clean slate.",
     waitForPrompt: () => "You're all set — I'll text you at your check-in time each day. Nothing to do right now.",
   },
   tl: {
     depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
       `${name}, real-ah sollanum-na — neenga "${blocker}" dhaan consistent-ah irukka mudiyama ponadhuku reason-nu sonneenga. Idha complete panna ${vision}-nu sonneenga. Adhudhaan andha gap... idhu adhukaana solution!\n\n` +
-      `Pana vishyam epdi nu clear-ah solren, hidden terms edhum illa:\n` +
-      `💰 Iniku ₹${amt} pay pannunga. Avvalavu dhaan.\n` +
-      `✅ Ella ${days} days-um fake illama check-in panna → ₹${refund} refund kedaikkum. Idhu unga ₹${amt} + ₹${refund - amt} extra — neenga commit panna person-ah maruradhuku ungaluke pay panra madhiri.\n` +
-      `⚠️ Oru naal miss panna, or fake panna → ₹${penalty} unga deposit ₹${amt}-la irundhu poidum. Adhigam slip panna full-um poidum.\n\n` +
-      `Idhu dhaan matter. Subscriptions or extra charges edhum illa. Show up panna mattum dhaan loss-e varum — neenga scale-la ${score}/10 commit-nu sollirkeenga. Ready-ah?`,
+      `Pana vishyam, deposit & offer details clear-ah solren, 100% transparent:\n` +
+      `🎁 First 14 days: FREE ACCESS! Iniku ₹${amt} refundable deposit mattum pay panni lock pannunga.\n` +
+      `⚙️ Terms: ₹25 platform fee போக remaining ₹275 unga base refund balance-ah irukkum.\n` +
+      `🛡️ 2 Free Strikes: Unga monthly plan-la 10 workout days-ku mela irundha, 2 DAYS MISS PANNALUM PENALTY ILLA (2 Free Strikes!).\n` +
+      `⚠️ Slip Penalty: Free strikes தாண்டி miss panra ovvoru nalaikkum ₹${penalty} deposit-la irundhu deduction aagum.\n` +
+      `🔥 Weekly Streak Discounts (2nd Month-la irundhu):\n` +
+      `   - Standard plan: Base ₹119/month → Ovvoru clean week-kum ₹10 discount (Max ₹40 off = ₹79/month!).\n` +
+      `   - Pro plan: Base ₹239/month → Ovvoru clean week-kum ₹10 discount (Max ₹40 off = ₹199/month!).\n\n` +
+      `14-day trial-la subscription bill aagadhu. Neenga scale-la ${score}/10 commit-nu sollirkeenga. Ready-ah?`,
     howItWorks: () =>
-      "Daily schedule: Unga selective time-la daily message pannuven. Enna paneenga-nu oru line + photo-va reply pannunga. Naan andha photo-va pathu direct-ah verify pannuven — fake panna mudiyathu. Correct-ah show up panna patha amount-a vida extra amount kooda return poidalam.",
-    paymentLink: (url) => `Ready-ah? pay ₹${config.depositAmountInr} here: ${url}\n\nPay panni mudichuttu "paid" nu message pannunga. Day 1 start pannalaam.`,
-    notPaidYet: () => `No stress — whenever you're ready. Pay the ₹${config.depositAmountInr}, text me "paid", and we start the clock on the ${config.pledgeDays} days that actually change this.`,
-    paidConfirmed: (time) => `Super, neenga locked in! \u{1F525} Daily ${time} time-ku message pannuven. Routine updates + photo proof anupunga. Day 1 starts now.`,
-    dailyPrompt: (activity, gestureText) => `Time to show up! Iniku ${activity}-ku enna plan? Workout complete pannitu oru line update + ${getProofInstruction('tl', activity, gestureText)} proof-a send pannunga. You can do it.`,
+      "Daily schedule: Unga selective time-la daily message pannuven. Enna paneenga-nu oru line + photo proof (today's gesture kaatti) anupunga. AI photo-va pathu direct-ah verify pannum. Correct-ah show up panna unga deposit balance return kedaikkum + monthly plan-la ₹40 varai discount-um adikalaam!",
+    paymentLink: (url) => `Ready-ah? Pay ₹${config.depositAmountInr} deposit here: ${url}\n\nPay panni mudichuttu "paid" nu message pannunga. Day 1 start pannalaam!`,
+    notPaidYet: () => `No stress — whenever you're ready. Pay the ₹${config.depositAmountInr} deposit, text me "paid", and we start the clock on the 14-day free trial & 30-day pledge.`,
+    paidConfirmed: (time) => `Super, neenga locked in! \u{1F525} Unga 14-day free trial start aaidichu. Daily ${time} time-ku message pannuven. Routine updates + photo proof anupunga. Day 1 starts now!`,
+    dailyPrompt: (activity, gestureText) => `Time to show up! Iniku ${activity}-ku enna plan? Workout complete pannitu oru line update + ${getProofInstruction('tl', activity, gestureText)} proof-a send pannunga. You can do it!`,
     needPhoto: (gestureText, activity) => `Update super — verify panna ${getProofInstruction('tl', activity || 'gym', gestureText)} irukra photo proof anupunga.`,
     needGesturePhoto: (gestureText, activity) => `Today's session verify panna, please ${getProofInstruction('tl', activity || 'gym', gestureText)} irukra photo anupunga.`,
     reminder: (gestureText, activity) => `hi buddy, edhavadhu marandhuteengala? 😅 Kavalai pada dhedhavadhilla, verify panna andha photo proof anupunga! ${getProofInstruction('tl', activity || 'gym', gestureText)} kaatunga.`,
@@ -138,33 +144,37 @@ const T = {
     'gesture_fist': 'making a fist',
     'gesture_ok-sign': 'OK sign (index and thumb forming circle)',
     checkinAccepted: (streak, daysLeft) =>
-      `Logged and verified! \u{1F525} ${streak}-day streak. Innum ${daysLeft} days to go — keep pushing.`,
+      `Logged and verified! \u{1F525} ${streak}-day streak. Innum ${daysLeft} days to go — keep pushing!`,
     checkinFailedFinal: (reason) =>
-      `Check-in match aagala — ${reason} Idhu slip-ah mark panren. Adhukaaga rest andha days complete cancel aavadhu, tomorrow is a new day, show up!`,
+      `Check-in match aagala — ${reason} Idhu slip-ah mark panren. Tomorrow is a new day, show up!`,
     weeklyOnTrack: (streak, daysLeft, payout) =>
-      `Weekly update: ${streak}-day streak continuous-ah pogudhu. Unga ₹${payout} return payout-ku innum ${daysLeft} days dhaan. Semmaya pannureenga.`,
+      `Weekly update: ${streak}-day streak! Refund balance: ₹${payout}. Indha week clean-ah mudichadhukaaga ₹10 discount earn pannirkeenga!`,
     weeklySlipped: (missed, payout) =>
-      `Weekly update: total ${missed} slips aairku. Ippo unga return balance: ₹${payout}. Week innum iruku, so correct-ah target lock pannunga.`,
+      `Weekly update: total ${missed} slips aairku. Current refund balance: ₹${payout}. Next days correct-ah target lock pannunga.`,
     finalComplete: (payout) =>
-      `${config.pledgeDays}/${config.pledgeDays} days complete! Super, ₹${payout} full-ah ungaluku credit aairum. Sonna madhiri panni kaateeteenga. Proud of you.`,
+      `${config.pledgeDays}/${config.pledgeDays} days complete! Super, ₹${payout} refund balance ungaluku credit aairum (after ₹25 platform fee). Max ₹40 discount-um unlock panniteenga (Standard: ₹79/mo, Pro: ₹199/mo)! Proud of you!`,
     finalPartial: (days, payout) =>
-      `${config.pledgeDays} days-la ${days} days counted. ₹${payout} return aagum. Keep going, continuous progress scale is better.`,
+      `${config.pledgeDays} days-la ${days} days counted. ₹${payout} return balance kedaikkum. Great effort showing up!`,
     missedYesterday: () => "Nethu check-in varala — andha day-a slip-ah mark pannittu proceed panren. Heavy lecture illa, iniku new day target.",
     waitForPrompt: () => "Neenga all set — everyday unga check-in time-la remind panren. Ippo verum wait pannunga.",
   },
   ta: {
     depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
       `${name}, நேர்மையாக சொல்கிறேன் — முன்பு உங்களைத் தடுத்தது "${blocker}" என்று சொன்னீர்கள். இதை முடித்தால் ${vision} என்றும் சொன்னீர்கள். அந்த இடைவெளிதான் — இதுதான் அதை மூடப் போகிறது.\n\n` +
-      `பணம் எப்படி வேலை செய்யும் என்பதை சரியாகச் சொல்கிறேன், மறைமுக நிபந்தனைகள் இல்லை:\n` +
-      `💰 இன்று ₹${amt} செலுத்துங்கள். இதுதான் முழு கேள்வி.\n` +
-      `✅ ${days} நாட்களும் ஏமாற்றாமல் செக்-இன் செய்தால் → ₹${refund} திரும்பப் பெறுவீர்கள். அது உங்கள் ₹${amt} + ₹${refund - amt} — நீங்கள் சொன்ன நபராக மாறுவதற்கு பணம் கிடைக்கும்.\n` +
-      `⚠️ ஒரு நாள் தவறவிட்டால், அல்லது செக்-இன்னில் ஏமாற்றினால் → ₹${penalty} ஒவ்வொரு முறையும் ₹${amt}-இல் இருந்து கழிக்கப்படும். போதுமான தவறுகள் என்றால் எதுவும் மிச்சம் இருக்காது.\n\n` +
-      `அவ்வளவுதான். சந்தா இல்லை, மறைமுக கட்டணம் இல்லை. நீங்கள் வராமல் இருந்தால் மட்டுமே இது செலவாகும் — நீங்கள் ஏற்கனவே ${score}/10 என்று சொன்னீர்கள்.`,
+      `கட்டணம், டெபாசிட் மற்றும் சலுகை விவரங்கள் (100% வெளிப்படை):\n` +
+      `🎁 முதல் 14 நாட்கள்: இலவச அனுமதி! இன்று ₹${amt} திரும்பப்பெறக்கூடிய டெபாசிட் மட்டும் செலுத்துங்கள்.\n` +
+      `⚙️ விதிமுறைகள்: ₹25 பிளாட்ஃபார்ம் கட்டணம் போக மீதமுள்ள ₹275 உங்களின் திரும்பப்பெறும் கணக்கில் இருக்கும்.\n` +
+      `🛡️ 2 இலவச ஸ்ட்ரைக்குகள்: மாதத்தில் 10 நாட்களுக்கு மேல் உடற்பயிற்சி இருந்தால், 2 நாட்கள் தவறினாலும் அபராதம் இல்லை!\n` +
+      `⚠️ அபராதம்: இலவச ஸ்ட்ரைக்குகளுக்கு மேல் தவறவிடும் ஒவ்வொரு நாளுக்கும் ₹${penalty} கழிக்கப்படும்.\n` +
+      `🔥 வாராந்திர தள்ளுபடி (2வது மாதம் முதல்):\n` +
+      `   - ஸ்டாண்டர்ட் திட்டம்: ₹119/மாதம் → வாரத்திற்கு ₹10 தள்ளுபடி (அதிகபட்சம் ₹40 தள்ளுபடி = ₹79/மாதம்!).\n` +
+      `   - புரோ திட்டம்: ₹239/மாதம் → வாரத்திற்கு ₹10 தள்ளுபடி (அதிகபட்சம் ₹40 தள்ளுபடி = ₹199/மாதம்!).\n\n` +
+      `14 நாட்கள் இலவச அனுமதியில் சந்தா கட்டணம் இல்லை. நீங்கள் ${score}/10 உறுதி அளித்துள்ளீர்கள். தயாரா?`,
     howItWorks: () =>
-      'தினசரி எப்படி இருக்கும்: உங்கள் நேரத்தில் தினமும் மெசேஜ் அனுப்புவேன். நீங்கள் என்ன செய்தீர்கள் என்பதையும், ஒரு புகைப்படத்தையும் பதிலளியுங்கள். அந்த புகைப்படத்தை நான் உண்மையில் பார்த்து, நீங்கள் சொல்வதோடும் உங்கள் வரலாற்றோடும் ஒப்பிடுவேன் — ஏமாற்ற முடியாது. நீங்கள் வந்தால், நான் உறுதி செய்வேன், நீங்கள் போட்டதை விட அதிகமாகப் பெறுவீர்கள்.',
-    paymentLink: (url) => `தயாரா? உங்கள் ₹${config.depositAmountInr}-ஐ இங்கே செலுத்துங்கள்: ${url}\n\nமுடிந்ததும், "paid" என்று எனக்கு அனுப்புங்கள், நாள் 1 தொடங்கும்.`,
-    notPaidYet: () => `பரவாயில்லை — நீங்கள் தயாரானதும். ₹${config.depositAmountInr} செலுத்தி "paid" என்று சொல்லுங்கள், இதை மாற்றப் போகும் ${config.pledgeDays} நாட்களின் கடிகாரம் தொடங்கும்.`,
-    paidConfirmed: (time) => `அவ்வளவுதான் — நீங்கள் பதிவு செய்யப்பட்டீர்கள்! \u{1F525} தினமும் சுமார் ${time} மணிக்கு மெசேஜ் அனுப்புவேன். வந்து, என்ன செய்தீர்கள் என்பதோடு ஒரு புகைப்படத்தையும் அனுப்புங்கள். நாள் 1 இப்போது தொடங்குகிறது.`,
+      'தினசரி முறை: உங்கள் நேரத்தில் தினமும் மெசேஜ் அனுப்புவேன். நீங்கள் செய்ததை ஒரு வரியாகவும், அன்றைய சைகையுடன் (gesture) ஒரு புகைப்படமாகவும் அனுப்பவும். AI அதை சரிபார்க்கும். டெபாசிட் திரும்புவதோடு மாதாந்திர திட்டத்தில் ₹40 வரை தள்ளுபடியும் பெறலாம்!',
+    paymentLink: (url) => `தயாரா? உங்கள் ₹${config.depositAmountInr} டெபாசிட்டை இங்கே செலுத்துங்கள்: ${url}\n\nமுடிந்ததும், "paid" என்று எனக்கு அனுப்புங்கள், நாள் 1 தொடங்கும்.`,
+    notPaidYet: () => `பரவாயில்லை — நீங்கள் தயாரானதும். ₹${config.depositAmountInr} செலுத்தி "paid" என்று சொல்லுங்கள், 14 நாட்கள் இலவச அனுமதி & 30 நாட்களின் கடிகாரம் தொடங்கும்.`,
+    paidConfirmed: (time) => `அவ்வளவுதான் — உங்கள் 14 நாள் இலவச அனுமதி தொடங்கியது! \u{1F525} தினமும் சுமார் ${time} மணிக்கு மெசேஜ் அனுப்புவேன். நாள் 1 இப்போது தொடங்குகிறது.`,
     dailyPrompt: (activity, gestureText) => `நேரமாச்சு — இன்று ${activity}-க்காக என்ன செய்கிறீர்கள்? முடிந்ததும் ஒரு வரியும், ${getProofInstruction('ta', activity, gestureText)} காட்டும் ஒரு புகைப்படமும் அனுப்புங்கள். உங்களால் முடியும்.`,
     needPhoto: (gestureText, activity) => `அப்டேட் பிடிச்சிருக்கு — இப்போது ${getProofInstruction('ta', activity || 'gym', gestureText)} காட்டும் ஒரு புகைப்படத்தையும் அனுப்புங்கள், சரியாக சரிபார்க்கிறேன்.`,
     needGesturePhoto: (gestureText, activity) => `இன்றைய உடற்பயிற்சியை சரிபார்க்க, தயவுசெய்து ${getProofInstruction('ta', activity || 'gym', gestureText)} காட்டி புகைப்படத்தை அனுப்பவும்.`,
@@ -177,31 +187,35 @@ const T = {
     checkinAccepted: (streak, daysLeft) =>
       `பதிவு செய்யப்பட்டது. \u{1F525} ${streak} நாள் தொடர்ச்சி. இன்னும் ${daysLeft} நாட்கள் — தொடருங்கள்.`,
     checkinFailedFinal: (reason) =>
-      `இது சரிபடவில்லை — ${reason} இது ஒரு தவறாக குறிக்கப்பட்டது. மற்றதை அழிக்காது — நாளை புதிய நாள், தொடருங்கள்.`,
+      `இது சரிபடவில்லை — ${reason} இது ஒரு தவறாக குறிக்கப்பட்டது. நாளை புதிய நாள், தொடருங்கள்.`,
     weeklyOnTrack: (streak, daysLeft, payout) =>
-      `வார சரிபார்ப்பு: ${streak} நாள் தொடர்ச்சி, இன்னும் தொடர்கிறீர்கள். ₹${payout} பெறுவதற்கு இன்னும் ${daysLeft} நாட்கள். இதுதான் வருவது எப்படி இருக்க வேண்டும் என்பதற்கான உதாரணம்.`,
+      `வார சரிபார்ப்பு: ${streak} நாள் தொடர்ச்சி! மீதமுள்ள திரும்பப்பெறும் தொகை: ₹${payout}. இந்த வாரம் ₹10 தள்ளுபடி பெற்றுள்ளீர்கள்!`,
     weeklySlipped: (missed, payout) =>
-      `வார சரிபார்ப்பு: இதுவரை ${missed} தவறுகள். தற்போதைய நிலை: ₹${payout} திரும்பும். இன்னும் வாரம் மிச்சம் இருக்கு — இன்றே திருத்த ஆரம்பியுங்கள்.`,
+      `வார சரிபார்ப்பு: இதுவரை ${missed} தவறுகள். மீதமுள்ள திரும்பப்பெறும் தொகை: ₹${payout}. இன்றே திருத்த ஆரம்பியுங்கள்.`,
     finalComplete: (payout) =>
-      `அது ${config.pledgeDays}/${config.pledgeDays} — ஒவ்வொரு நாளும், சாக்குப்போக்கு இல்லாமல். ₹${payout} உங்களுக்குத் திரும்பும். முடியாது என நினைத்ததை செய்து காட்டினீர்கள். பெருமைப்படுகிறேன்.`,
+      `அது ${config.pledgeDays}/${config.pledgeDays} — சாக்குப்போக்கு இல்லாமல்! ₹${payout} உங்களுக்குத் திரும்பும் (₹25 கட்டணம் போக). ₹40 அதிகபட்ச தள்ளுபடியையும் பெற்றுள்ளீர்கள் (Standard: ₹79/மாதம், Pro: ₹199/மாதம்)!`,
     finalPartial: (days, payout) =>
-      `${config.pledgeDays} நாட்கள் முடிந்தன, ${days} நாட்கள் எண்ணப்பட்டன. ₹${payout} உங்களுக்குத் திரும்பும். எப்படி இருந்தாலும் — இது இல்லாமல் இருப்பதை விட அதிகமாக வந்தீர்கள், அது சாதாரணமில்லை.`,
-    missedYesterday: () => 'நேற்று செக்-இன் வரவில்லை — ஒரு தவறாக குறித்து தொடர்கிறோம். விமர்சனம் இல்லை — இன்று புதிய தொடக்கம்.',
+      `${config.pledgeDays} நாட்கள் முடிந்தன, ${days} நாட்கள் எண்ணப்பட்டன. ₹${payout} உங்களுக்குத் திரும்பும்.`,
+    missedYesterday: () => 'நேற்று செக்-இன் வரவில்லை — ஒரு தவறாக குறித்து தொடர்கிறோம். இன்று புதிய தொடக்கம்.',
     waitForPrompt: () => 'நீங்கள் தயார் — ஒவ்வொரு நாளும் உங்கள் நேரத்தில் மெசேஜ் அனுப்புவேன். இப்போது எதுவும் செய்ய வேண்டாம்.',
   },
   hi: {
     depositAsk: ({ name, amt, refund, penalty, days, blocker, vision, score }) =>
       `${name}, सच कहूं — आपने बताया कि "${blocker}" ने पहले आपको रोका था। और आपने कहा कि अगर आपने यह कर दिखाया, तो ${vision}। वही गैप है — इसे यही भरने वाला है।\n\n` +
-      `पैसा बिल्कुल कैसे काम करता है, बिना किसी छुपी शर्त के:\n` +
-      `💰 आज ₹${amt} जमा करें। बस इतना ही।\n` +
-      `✅ ${days} दिन बिना किसी बहाने के चेक-इन करें → ₹${refund} वापस मिलेगा। यानी आपका ₹${amt} + ₹${refund - amt} — आप जो बनना चाहते थे, उसके लिए आपको पैसे मिलेंगे।\n` +
-      `⚠️ एक दिन मिस किया, या चेक-इन में झूठ बोला → हर बार ₹${penalty} आपके ₹${amt} में से कटेगा। ज़्यादा चूक हुई तो कुछ नहीं बचेगा।\n\n` +
-      `बस इतना ही। कोई सब्सक्रिप्शन नहीं, कोई छुपा चार्ज नहीं। यह सिर्फ तभी महंगा पड़ेगा जब आप नहीं आए — और आपने अभी बताया कि आप ${score}/10 पर हैं।`,
+      `फीस, डिपॉजिट और ऑफर का पूरा हिसाब (100% पारदर्शी):\n` +
+      `🎁 पहले 14 दिन: बिल्कुल मुफ्त एक्सेस! आज बस ₹${amt} का रिफंडेबल डिपॉजिट जमा करें।\n` +
+      `⚙️ नियम: ₹25 प्लेटफॉर्म फीस के बाद ₹275 आपका बेस रिफंड बैलेंस रहेगा।\n` +
+      `🛡️ 2 फ्री स्ट्राइक: अगर महीने में 10 से ज़्यादा वर्कआउट दिन हैं, तो 2 दिन मिस होने पर 0 पेनल्टी!\n` +
+      `⚠️ पेनल्टी: फ्री स्ट्राइक के बाद हर मिस हुए दिन पर ₹${penalty} डिपॉजिट से कटेंगे।\n` +
+      `🔥 वीकली स्ट्रीक डिस्काउंट (दूसरे महीने से):\n` +
+      `   - स्टैंडर्ड प्लान: ₹119/महीना → हर क्लीन हफ्ते पर ₹10 की छूट (अधिकतम ₹40 छूट = ₹79/महीना!)।\n` +
+      `   - प्रो प्लान: ₹239/महीना → हर क्लीन हफ्ते पर ₹10 की छूट (अधिकतम ₹40 छूट = ₹199/महीना!)।\n\n` +
+      `14 दिन के ट्रायल में कोई सब्सक्रिप्शन नहीं कटेगा। आपने बताया कि आप ${score}/10 पर हैं। तैयार हैं?`,
     howItWorks: () =>
-      'रोज़ का हिसाब ऐसा है: मैं आपके समय पर रोज़ मैसेज करूंगा। आप जवाब में बताएं क्या किया — एक लाइन और एक फोटो। मैं वाकई वो फोटो देखकर उसे आपकी बात और पुराने रिकॉर्ड से मिलाऊंगा, तो बहाना नहीं चलेगा। आप आएं, मैं पक्का करूंगा, आप जितना डाला उससे ज़्यादा लेकर जाएंगे।',
-    paymentLink: (url) => `तैयार हैं? अपनी ₹${config.depositAmountInr} यहां भरें: ${url}\n\nहो जाए तो बस "paid" लिखकर भेजें, दिन 1 शुरू।`,
-    notPaidYet: () => `कोई जल्दी नहीं — जब तैयार हों। ₹${config.depositAmountInr} भरें, "paid" लिखें, और उन ${config.pledgeDays} दिनों की घड़ी शुरू करें जो असल में यह बदल देंगे।`,
-    paidConfirmed: (time) => `बस यही था — आप लॉक-इन हो गए! \u{1F525} मैं रोज़ करीब ${time} बजे मैसेज करूंगा। आकर बताइए क्या किया, एक फोटो के साथ। दिन 1 अभी से शुरू।`,
+      'रोज़ का हिसाब: मैं आपके समय पर रोज़ मैसेज करूंगा। आप जवाब में एक लाइन + फोटो (आज के इशारे/gesture के साथ) भेजें। AI फोटो देखकर पक्का करेगा। डिपॉजिट वापस मिलेगा और अगले महीने के प्लान पर ₹40 तक की छूट मिलेगी!',
+    paymentLink: (url) => `तैयार हैं? अपना ₹${config.depositAmountInr} डिपॉजिट यहां जमा करें: ${url}\n\nहो जाए तो बस "paid" लिखकर भेजें, दिन 1 शुरू!`,
+    notPaidYet: () => `कोई जल्दी नहीं — जब तैयार हों। ₹${config.depositAmountInr} डिपॉजिट जमा करें, "paid" लिखें, और 14 दिन के फ्री ट्रायल की घड़ी शुरू करें।`,
+    paidConfirmed: (time) => `बस यही था — आपका 14 दिन का फ्री ट्रायल शुरू हो गया! \u{1F525} मैं रोज़ करीब ${time} बजे मैसेज करूंगा। दिन 1 अभी से शुरू।`,
     dailyPrompt: (activity, gestureText) => `समय हो गया — आज ${activity} के लिए क्या कर रहे हैं? हो जाए तो एक लाइन + ${getProofInstruction('hi', activity, gestureText)} दिखाते हुए एक फोटो भेजें। आप कर सकते हैं।`,
     needPhoto: (gestureText, activity) => `अपडेट अच्छा लगा — अब ${getProofInstruction('hi', activity || 'gym', gestureText)} दिखाते हुए एक फोटो भी भेजिए ताकि मैं ठीक से चेक-इन कन्फर्म कर सकूं।`,
     needGesturePhoto: (gestureText, activity) => `आज के वर्कआउट को कन्फर्म करने के लिए, कृपया ${getProofInstruction('hi', activity || 'gym', gestureText)} दिखाते हुए अपनी फोटो भेजें।`,
@@ -214,16 +228,16 @@ const T = {
     checkinAccepted: (streak, daysLeft) =>
       `दर्ज हो गया, और मैं देख रहा हूं। \u{1F525} ${streak}-दिन की स्ट्रीक। ${daysLeft} दिन बाकी — लगे रहिए।`,
     checkinFailedFinal: (reason) =>
-      `यह ठीक नहीं बैठा — ${reason} इसे चूक के रूप में दर्ज किया गया। बाकी दिन खराब नहीं होते — कल एक साफ दिन है, फिर आइए।`,
+      `यह ठीक नहीं बैठा — ${reason} इसे चूक के रूप में दर्ज किया गया। कल एक साफ दिन है, फिर आइए।`,
     weeklyOnTrack: (streak, daysLeft, payout) =>
-      `साप्ताहिक अपडेट: ${streak}-दिन की स्ट्रीक, अभी भी चालू। ₹${payout} पाने के लिए ${daysLeft} दिन और बाकी। दिखाना यही कहलाता है।`,
+      `साप्ताहिक अपडेट: ${streak}-दिन की स्ट्रीक! रिफंड बैलेंस: ₹${payout}। इस हफ्ते आपने ₹10 की छूट हासिल कर ली है!`,
     weeklySlipped: (missed, payout) =>
-      `साप्ताहिक अपडेट: अब तक ${missed} चूक। मौजूदा स्थिति: ₹${payout} वापस आ रहा है। हफ्ता अभी बाकी है — आज से सुधारना शुरू करें।`,
+      `साप्ताहिक अपडेट: अब तक ${missed} चूक। रिफंड बैलेंस: ₹${payout}। आज से सुधारना शुरू करें।`,
     finalComplete: (payout) =>
-      `${config.pledgeDays}/${config.pledgeDays} — हर दिन, कोई बहाना नहीं। ₹${payout} आपको वापस मिल रहा है। जो नामुमकिन लगता था, वो कर दिखाया। गर्व है आप पर।`,
+      `${config.pledgeDays}/${config.pledgeDays} — हर दिन, कोई बहाना नहीं! ₹${payout} आपको वापस मिल रहा है (₹25 फीस के बाद)। आपने अधिकतम ₹40 छूट भी पा ली है (Standard: ₹79/महीना, Pro: ₹199/महीना)!`,
     finalPartial: (days, payout) =>
-      `${config.pledgeDays} दिन पूरे हुए, ${days} दिन गिने गए। ₹${payout} आपको वापस मिल रहा है। जो भी हुआ — इसके बिना होने से कहीं ज़्यादा आप आए, और यह कोई छोटी बात नहीं।`,
-    missedYesterday: () => 'कल कोई चेक-इन नहीं आया — इसे चूक के तौर पर दर्ज कर आगे बढ़ रहे हैं। कोई लेक्चर नहीं — आज एक साफ शुरुआत है।',
+      `${config.pledgeDays} दिन पूरे हुए, ${days} दिन गिने गए। ₹${payout} आपको वापस मिल रहा है।`,
+    missedYesterday: () => 'कल कोई चेक-इन नहीं आया — इसे चूक के तौर पर दर्ज कर आगे बढ़ रहे हैं। आज एक साफ शुरुआत है।',
     waitForPrompt: () => 'आप तैयार हैं — मैं रोज़ आपके समय पर मैसेज करूंगा। अभी कुछ करने की ज़रूरत नहीं।',
   },
 };

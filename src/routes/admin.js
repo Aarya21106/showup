@@ -20,9 +20,8 @@ if (config.admin.password) {
 
 function computePayout(user) {
   if (user.deposit_status !== 'paid') return null;
-  const missed = user.missed_count;
-  if (missed === 0 && user.day_count >= config.pledgeDays) return config.fullPayoutInr;
-  return Math.max(config.depositAmountInr - config.slipPenaltyInr * missed, 0);
+  const { calculatePledgePayout } = require('../utils/payout');
+  return calculatePledgePayout(user, user.missed_count).payout;
 }
 
 function escapeHtml(str) {

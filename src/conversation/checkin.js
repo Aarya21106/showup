@@ -47,10 +47,9 @@ async function finalizeAccepted(user, checkinId, reason) {
   const streak = user.streak + 1;
 
   if (user.day_count >= config.pledgeDays) {
+    const { calculatePledgePayout } = require('../utils/payout');
     const missed = user.missed_count;
-    const payout = missed === 0
-      ? config.fullPayoutInr
-      : Math.max(config.depositAmountInr - config.slipPenaltyInr * missed, 0);
+    const { payout } = calculatePledgePayout(user, missed);
     const completedDays = config.pledgeDays - missed;
 
     db.updateUser(user.id, { state: states.COMPLETED, streak, pending_checkin_id: null, current_gesture: null });

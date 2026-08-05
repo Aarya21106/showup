@@ -107,14 +107,16 @@ webhook wired up — see "What's simplified for MVP" below).
 protected) for the refund worklist: name, activity, streak, deposit status, payout owed.
 Refunds are still sent manually via UPI — this page just tells you who owes what.
 
-## How the pledge math works
+## How the pledge math & pricing work
 
-- Deposit: ₹300 (`DEPOSIT_AMOUNT_INR`).
-- Complete all 30 days with zero slips -> ₹500 back (`FULL_PAYOUT_INR`).
-- Any slip (missed day or a check-in that fails verification, even after a follow-up)
-  -> refund becomes `₹300 - ₹50 × slips` (floored at ₹0), no bonus.
-- A "slip" = a scheduled day with no accepted check-in by the time the next day's prompt
-  fires, OR a check-in that Gemini rejects even after asking a clarifying follow-up.
+- **Refundable Deposit**: ₹300 (`DEPOSIT_AMOUNT_INR`).
+- **Free Trial**: First 14 days FREE access after paying the ₹300 refundable deposit.
+- **Platform Fee**: ₹25 administrative fee (`PLATFORM_FEE_INR`), leaving a base refund balance of **₹275** (`FULL_PAYOUT_INR`).
+- **Grace / Free Strikes Rule**: If the user's committed schedule has **>10 workout days in the 30-day period**, they get **2 FREE STRIKES** (miss 2 days with ₹0 penalty).
+- **Slip Penalty**: Beyond free strikes, each missed day deducts **₹50** (`SLIP_PENALTY_INR`) from their deposit balance (floored at ₹0).
+- **Monthly Subscription (Month 2 onward)**:
+  - Standard Plan: Base ₹119/month → Earn ₹10 off per clean week (up to ₹40 off = **₹79/month**).
+  - Pro Plan: Base ₹239/month → Earn ₹10 off per clean week (up to ₹40 off = **₹199/month**).
 
 ## Project layout
 

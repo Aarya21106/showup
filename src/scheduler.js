@@ -100,9 +100,8 @@ async function sweepAndPrompt(user, today, yesterday) {
   }
 
   if (dayCount > config.pledgeDays) {
-    const payout = missed === 0
-      ? config.fullPayoutInr
-      : Math.max(config.depositAmountInr - config.slipPenaltyInr * missed, 0);
+    const { calculatePledgePayout } = require('./utils/payout');
+    const { payout } = calculatePledgePayout(user, missed);
     const completedDays = config.pledgeDays - missed;
 
     db.updateUser(user.id, {
@@ -220,14 +219,13 @@ function tick() {
 }
 
 async function sendWeeklySummaries() {
+  const { calculatePledgePayout } = require('./utils/payout');
   const today = todayStr(config.timezone);
   for (const user of db.getActiveUsers()) {
     if (user.last_weekly_summary_date === today) continue;
     try {
       const missed = user.missed_count;
-      const payout = missed === 0
-        ? config.fullPayoutInr
-        : Math.max(config.depositAmountInr - config.slipPenaltyInr * missed, 0);
+      const { payout } = calculatePledgePayout(user, missed);
       const daysLeft = Math.max(config.pledgeDays - user.day_count, 0);
 
       db.updateUser(user.id, { last_weekly_summary_date: today });

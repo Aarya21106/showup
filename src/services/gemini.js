@@ -292,7 +292,7 @@ We need to collect these fields for the user's checklist:
 1. "name": The user's name.
 2. "language": Preferred language (MUST be exactly one of 'en' for English, 'ta' for Tamil, 'hi' for Hindi, or 'tl' for Tanglish - Tamil written using Latin script).
 3. "activity": The activity they commit to (MUST be exactly one of 'gym', 'running', 'walking', or 'cycling').
-4. "tier": Pricing plan preference. MUST be exactly one of 'free' (free trial accountability), 'pro_120' (120 INR plan with diet/calorie tracking), or 'pro_350' (350 INR plan with full coaching & exercises).
+4. "tier": Pricing plan preference. MUST be exactly one of 'free' (14-day free trial), 'pro_120' (Standard plan ₹119/month after 14 days, down to ₹79/mo with streak discounts), or 'pro_350' (Pro plan ₹239/month after 14 days with AI workouts & coaching, down to ₹199/mo with streak discounts).
 5. "days_per_week": How many days a week they commit to their activity (an integer between 1 and 7).
 6. "checkin_time": The daily check-in time for their session. Extract and convert to 'HH:MM' 24h format in Asia/Kolkata timezone (e.g. "7am" -> "07:00", "6:30 pm" -> "18:30").
 7. "blocker_text": What stopped them from staying consistent before (e.g. bad mornings, laziness, boredom).
@@ -316,7 +316,7 @@ Instructions:
 1. Analyze the user's latest message in context of the recent history.
 2. Extract any of the checklist fields they have provided or clarified. If a field was already collected, preserve its value unless the user explicitly wants to update/change it in their message.
    - For "activity", extract it as exactly one of 'gym', 'running', 'walking', or 'cycling' if they mention it. If they say "work out", default to 'gym'.
-   - For "tier", extract it as exactly one of 'free', 'pro_120', or 'pro_350'. If they ask about the plans, explain the options (Free = accountability only, Pro 120 = diet/calorie tracking, Pro 350 = workout coaching/exercises) and ask them to select one.
+   - For "tier", extract it as exactly one of 'free', 'pro_120', or 'pro_350'. If they ask about plans: Explain that the first 14 days are FREE after paying the ₹300 refundable deposit. Month 2 onward is ₹119/mo for Standard (down to ₹79/mo with weekly streak discounts) or ₹239/mo for Pro (down to ₹199/mo with weekly streak discounts).
    - For "days_per_week", try to extract just the number (1-7).
    - For "checkin_time", format it strictly as "HH:MM" (24-hour, e.g. "07:00" or "18:30").
    - For "language", if they specified English/Tamil/Hindi/Tanglish (or are typing in Tamil using Latin script), set it to "en"/"ta"/"hi"/"tl" respectively.

@@ -22,9 +22,19 @@ const config = {
 
   timezone: process.env.TIMEZONE || 'Asia/Kolkata',
   pledgeDays: parseInt(process.env.PLEDGE_DAYS || '30', 10),
+  trialDays: 14,
   depositAmountInr: parseInt(process.env.DEPOSIT_AMOUNT_INR || '300', 10),
-  fullPayoutInr: parseInt(process.env.FULL_PAYOUT_INR || '500', 10),
+  platformFeeInr: parseInt(process.env.PLATFORM_FEE_INR || '25', 10),
+  fullPayoutInr: parseInt(process.env.FULL_PAYOUT_INR || '275', 10), // 300 - 25 platform fee
   slipPenaltyInr: parseInt(process.env.SLIP_PENALTY_INR || '50', 10),
+  freeStrikesThresholdDays: 10, // if workout days > 10 per month
+  freeStrikesCount: 2, // 2 strikes without penalty
+  weeklyDiscountInr: 10, // ₹10 off per clean week
+  maxDiscountInr: 40, // max ₹40 discount per month
+  pricing: {
+    standard: { base: 119, min: 79 },
+    pro: { base: 239, min: 199 },
+  },
 };
 
 const isPlaceholder = (val) => {
