@@ -41,7 +41,7 @@ const fs = require('fs');
 
 let sock = null;
 let isConnected = false;
-let makeWASocket, useMultiFileAuthState, DisconnectReason;
+let makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers;
 
 async function getBaileys() {
   if (!makeWASocket) {
@@ -49,8 +49,9 @@ async function getBaileys() {
     makeWASocket = baileys.default || baileys.makeWASocket;
     useMultiFileAuthState = baileys.useMultiFileAuthState;
     DisconnectReason = baileys.DisconnectReason;
+    Browsers = baileys.Browsers;
   }
-  return { makeWASocket, useMultiFileAuthState, DisconnectReason };
+  return { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers };
 }
 
 // Converts a Twilio-style JID ('whatsapp:+919500665712') to Baileys format ('919500665712@s.whatsapp.net')
@@ -78,7 +79,7 @@ function getLocalPath(mediaUrl) {
 }
 
 async function connectToWhatsApp() {
-  const { makeWASocket, useMultiFileAuthState, DisconnectReason } = await getBaileys();
+  const { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await getBaileys();
   const authFolder = path.join(__dirname, '..', '..', 'auth_info_baileys');
   const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
@@ -95,6 +96,11 @@ async function connectToWhatsApp() {
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: !usePairingCode,
+    browser: Browsers ? Browsers.macOS('Desktop') : ['Mac OS', 'Chrome', '121.0.0'],
+    syncFullHistory: false,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000,
+    keepAliveIntervalMs: 25000,
   });
 
   sock.ev.on('creds.update', saveCreds);
