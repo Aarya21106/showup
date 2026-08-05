@@ -526,16 +526,22 @@ Reply ONLY in ${langName}.`;
   return text.trim();
 }
 
-async function conductTimetableInterview({ currentTimetable, message, goal, activity, language, chatHistory, daysPerWeek, checkinTime }) {
+async function conductTimetableInterview({ currentTimetable, message, goal, activity, language, chatHistory, daysPerWeek, checkinTime, user }) {
   const langName = LANGUAGE_NAMES[language] || 'English';
   const timetableStr = currentTimetable ? JSON.stringify(currentTimetable, null, 2) : 'none';
   const historyString = (chatHistory || []).map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
-  const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
-We are setting up the user's weekly workout timetable/split.
+  const coachCtx = user ? buildCoachContext(user) : '';
+
+  const prompt = `You are ShowUp, an elite, highly proactive human fitness coach and best friend texting on WhatsApp.
+${coachCtx}
+We are setting up the user's weekly workout timetable split, target muscle focus, and diet/allergy guidelines.
+
 User's activity: "${activity}"
 User's current goal: "${goal || 'not set yet'}"
 Target number of workout days per week: ${daysPerWeek || 3}
-User's preferred check-in timing details: ${checkinTime || 'daily'}
+User's check-in time: ${checkinTime || '08:00'}
+User's existing food allergy: "${user?.allergy || 'not checked yet'}"
+User's target muscle focus: "${user?.target_muscle || 'not set yet'}"
 
 Current timetable structure:
 ${timetableStr}
@@ -545,20 +551,28 @@ ${historyString}
 
 User message: "${message}"
 
-Instructions:
-1. Analyze the user's message and the chat history context.
-2. If they mention their fitness goal (e.g., gain muscle, lose weight, general fitness, cardio endurance), extract/update the goal field.
-   - Map goal to one of: "muscle_gain", "weight_loss", "cardio", "general".
-3. Propose/update a weekly timetable (Monday through Sunday) based on their goal and activity.
-   - CRITICAL CONSTRAINT: The proposed schedule MUST contain EXACTLY ${daysPerWeek || 3} workout days. All other days MUST be "Rest". Do NOT suggest more workout days than this target.
-   - ALIGN WITH USER DAYS: Check the user's onboarding message or request in the chat history. For example, if they specified "2 days weekend", you MUST place the splits on Saturday and Sunday and set all weekdays (Monday-Friday) to "Rest".
-   - If they confirm the suggestion (e.g., "looks good", "yes", "confirm", "perfect"), set "confirmed" to true.
-   - If they want to edit any day, apply the edits and set "confirmed" to false. Ensure the number of workout days remains exactly ${daysPerWeek || 3} unless they explicitly request to change the weekly workout frequency itself.
-4. Write a warm, punchy, conversational response in ${langName} displaying their weekly timetable clearly and asking if they want to confirm it or make any changes. Keep the message under 100 words.
+INSTRUCTIONS (ACT LIKE AN EXPERT PROACTIVE HUMAN COACH):
+1. Analyze the user's message and determine their primary goal if mentioned ("muscle_gain", "weight_loss", "cardio", "general").
+2. Based on their goal, AUTOMATICALLY prescribe the target muscle focus and diet strategy without waiting for them to ask:
+   - For Muscle Gain: Prescribe heavy compound splits (e.g. Upper Body & Chest, Lower Body & Glutes, Arms & Shoulders). Prescribe high-protein nutrition guidance (e.g. 1.8g protein/kg, calorie surplus).
+   - For Weight Loss: Prescribe fat-burn cardio + full body muscle preservation splits. Prescribe high-protein calorie deficit nutrition.
+   - For Cardio / General: Prescribe stamina & functional strength splits.
+3. Propose a weekly timetable (Monday through Sunday):
+   - CRITICAL: Schedule MUST contain EXACTLY ${daysPerWeek || 3} workout days with specific muscle group focus (e.g., Saturday: Upper Body & Chest, Sunday: Lower Body & Glutes). All other days MUST be "Rest".
+   - ALIGN WITH USER DAYS: If they specified weekends or specific days, place workouts on those exact days.
+   - If they confirm the schedule (e.g. "looks good", "yes", "confirm", "perfect", "done"), set "confirmed" to true.
+4. Check for food allergies or diet restrictions:
+   - If user.allergy is not set yet or missing, PROACTIVELY ask in your message: "Do you have any food allergies (peanuts, dairy, gluten, or none) so I can tailor your diet guidance?"
+5. RESPECT & TONE RULE (MANDATORY IN TAMIL/TANGLISH):
+   - ALWAYS use respectful terms: "neenga", "unga", "ungalukku", "sollunga", "bro" / "Ji".
+   - NEVER EVER use "Dei", "Da", "Di", "nee", "unakku", "unoda", or "podu".
+6. Write a warm, encouraging, proactive coach response displaying their weekly split, target muscle focus, diet tip, and allergy check in ${langName}. Keep under 110 words.
 
 Respond ONLY with strict JSON, no markdown fences:
 {
   "goal": "muscle_gain"|"weight_loss"|"cardio"|"general",
+  "target_muscle": "string (e.g. Chest & Upper Body, Legs & Glutes, Full Body)",
+  "allergy": "string or null",
   "timetable": {
     "Monday": "string or Rest",
     "Tuesday": "string or Rest",
@@ -569,7 +583,7 @@ Respond ONLY with strict JSON, no markdown fences:
     "Sunday": "string or Rest"
   },
   "confirmed": boolean,
-  "reply": "string (conversational response displaying the table in text and asking to confirm or edit)"
+  "reply": "string (proactive human coach response displaying the table split, target muscle advice, diet tip, and allergy check in ${langName})"
 }`;
 
   const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.2 });

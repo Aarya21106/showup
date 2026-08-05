@@ -178,18 +178,21 @@ async function handleTimetableSetup(user, body) {
       language: user.language,
       chatHistory,
       daysPerWeek: user.days_per_week,
-      checkinTime: user.checkin_time
+      checkinTime: user.checkin_time,
+      user,
     });
 
     const fieldsToUpdate = {
       timetable: JSON.stringify(result.timetable),
-      goal: result.goal
+      goal: result.goal,
     };
+    if (result.target_muscle) fieldsToUpdate.target_muscle = result.target_muscle;
+    if (result.allergy) fieldsToUpdate.allergy = result.allergy;
 
     if (result.confirmed) {
       fieldsToUpdate.state = states.ACTIVE;
       db.updateUser(user.id, fieldsToUpdate);
-      await whatsapp.sendText(phone, messages.t(user.language, 'paidConfirmed', user.checkin_time));
+      await whatsapp.sendText(phone, result.reply || messages.t(user.language, 'paidConfirmed', user.checkin_time, user.activity));
     } else {
       db.updateUser(user.id, fieldsToUpdate);
       await whatsapp.sendText(phone, result.reply);
