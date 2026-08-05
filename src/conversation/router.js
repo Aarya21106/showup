@@ -55,6 +55,47 @@ function autoCorrectUserLanguage(user, text) {
   return newLang;
 }
 
+function checkForAllergyUpdate(user, text) {
+  if (!user || !text) return;
+  const lower = text.toLowerCase();
+  
+  if (/(no allergy|no food allergy|onnum illa|none|naan|nill|illai|illa|nothing|no allergies|apdi ethum illai|ethum illai)/i.test(lower)) {
+    if (user.allergy !== 'none') {
+      console.log(`[Router] Updating user ${user.id} allergy to 'none'`);
+      db.updateUser(user.id, { allergy: 'none' });
+      user.allergy = 'none';
+    }
+  } else if (/(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)/i.test(lower)) {
+    const match = lower.match(/(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)/gi);
+    if (match) {
+      const allergyVal = Array.from(new Set(match)).join(', ');
+      if (user.allergy !== allergyVal) {
+        console.log(`[Router] Updating user ${user.id} allergy to '${allergyVal}'`);
+        db.updateUser(user.id, { allergy: allergyVal });
+        user.allergy = allergyVal;
+      }
+    }
+  }
+}
+
+function isWorkoutDayToday(user) {
+  if (!user || !user.timetable) return true;
+  try {
+    const timetable = JSON.parse(user.timetable);
+    const todayName = new Intl.DateTimeFormat('en-US', {
+      weekday: 'long',
+      timeZone: require('../config').timezone,
+    }).format(new Date());
+    const todaySplit = timetable[todayName];
+    if (!todaySplit || todaySplit.toLowerCase() === 'rest') {
+      return false; // Rest day
+    }
+    return true; // Scheduled workout day
+  } catch (err) {
+    return true;
+  }
+}
+
 /**
  * media: { mediaUrl?, mimeType?, testBase64 } - testBase64 is set only by the local
  * simulate.js harness, which has no real Twilio account to host media on.
@@ -66,6 +107,7 @@ async function handleIncomingMessage({ phone, body, media }) {
   if (text.length > 0) {
     if (!isNew) {
       autoCorrectUserLanguage(user, text);
+      checkForAllergyUpdate(user, text);
     }
     db.saveChatMessage(user.id, 'user', text);
 
@@ -116,6 +158,7 @@ async function handleIncomingMessage({ phone, body, media }) {
   if (CHECKIN_STATES.has(user.state)) {
     const hasImage = media && (media.mediaUrl || media.testBase64);
     const isPro = user.tier && user.tier.startsWith('pro');
+    const workoutToday = isWorkoutDayToday(user);
 
     if (cleanText.includes('change schedule') || cleanText.includes('update timetable') || cleanText.includes('edit schedule')) {
       db.updateUser(user.id, { state: states.AWAITING_TIMETABLE });
@@ -138,27 +181,37 @@ async function handleIncomingMessage({ phone, body, media }) {
         const intent = await gemini.classifyIntent(text);
         console.log(`[Router] Classified intent for user ${user.id}: ${intent}`);
 
-        if (isPro && intent === 'DIET_LOG') {
+        if (intent === 'DIET_LOG' && isPro) {
           const diet = require('./diet');
           await diet.handleDietLog(user, text);
           return;
         }
-        if (isPro && intent === 'DIET_QUERY') {
-          const diet = require('./diet');
-          await diet.handleDietQuery(user, text);
+        if (intent === 'DIET_QUERY') {
+          if (isPro) {
+            const diet = require('./diet');
+            await diet.handleDietQuery(user, text);
+          } else {
+            const reply = await gemini.handleGeneralQuery(user, text);
+            await whatsapp.sendText(phone, reply);
+          }
           return;
         }
-        if (isPro && intent === 'WORKOUT_BURN_LOG') {
+        if (intent === 'WORKOUT_BURN_LOG' && isPro) {
           const exercise = require('./exercise');
           await exercise.handleBurnLog(user, text);
           return;
         }
-        if (isPro && intent === 'EXERCISE_QUERY') {
-          const exercise = require('./exercise');
-          await exercise.handleExerciseQuery(user, text);
+        if (intent === 'EXERCISE_QUERY') {
+          if (isPro) {
+            const exercise = require('./exercise');
+            await exercise.handleExerciseQuery(user, text);
+          } else {
+            const reply = await gemini.handleGeneralQuery(user, text);
+            await whatsapp.sendText(phone, reply);
+          }
           return;
         }
-        if (intent === 'GENERAL_QUERY') {
+        if (intent === 'GENERAL_QUERY' || !workoutToday) {
           const reply = await gemini.handleGeneralQuery(user, text);
           await whatsapp.sendText(phone, reply);
           return;
@@ -168,7 +221,13 @@ async function handleIncomingMessage({ phone, body, media }) {
       }
     }
 
-    await checkin.handleCheckinFlow(user, text, media || {});
+    if (workoutToday || hasImage) {
+      await checkin.handleCheckinFlow(user, text, media || {});
+    } else {
+      const gemini = require('../services/gemini');
+      const reply = await gemini.handleGeneralQuery(user, text);
+      await whatsapp.sendText(phone, reply);
+    }
     return;
   }
 }
