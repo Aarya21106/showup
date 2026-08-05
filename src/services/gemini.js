@@ -86,47 +86,42 @@ const RESPECT_AND_TONE_RULES = `
  * Injected into the system prompt of every conversational Gemini call.
  */
 function buildCoachContext(user) {
-  const db = require('../db/db');
-  const profileJson = db.getProfileJson(user.id);
-  const summaries = db.getRecentDailySummaries(user.id, 3);
-  const today = require('../utils/date').todayStr(require('../config').timezone);
-  const dueFollowUps = db.getDueFollowUps(today).filter(f => f.user_id === user.id);
-
   let ctx = '';
+  if (user) {
+    const db = require('../db/db');
+    const profileJson = db.getProfileJson(user.id);
+    const summaries = db.getRecentDailySummaries(user.id, 3);
+    const today = require('../utils/date').todayStr(require('../config').timezone);
+    const dueFollowUps = db.getDueFollowUps(today).filter(f => f.user_id === user.id);
 
-  // Profile memory
-  if (profileJson && Object.keys(profileJson).length > 0) {
-    ctx += `\n== USER MEMORY (durable facts you know about this person) ==\n${JSON.stringify(profileJson)}\n`;
-  }
+    // Profile memory
+    if (profileJson && Object.keys(profileJson).length > 0) {
+      ctx += `\n== USER MEMORY (durable facts you know about this person) ==\n${JSON.stringify(profileJson)}\n`;
+    }
 
-  // Recent daily summaries
-  if (summaries.length > 0) {
-    ctx += `\n== RECENT DAYS ==\n`;
-    for (const s of summaries) {
-      ctx += `${s.date}: ${s.summary}\n`;
+    // Recent daily summaries
+    if (summaries.length > 0) {
+      ctx += `\n== RECENT DAYS ==\n`;
+      for (const s of summaries) {
+        ctx += `${s.date}: ${s.summary}\n`;
+      }
+    }
+
+    // Due follow-ups
+    if (dueFollowUps.length > 0) {
+      ctx += `\n== FOLLOW-UPS DUE TODAY (weave these naturally into your response) ==\n`;
+      for (const f of dueFollowUps) {
+        ctx += `- From ${f.date}: ${f.summary}\n`;
+      }
     }
   }
 
-  // Due follow-ups
-  if (dueFollowUps.length > 0) {
-    ctx += `\n== FOLLOW-UPS DUE TODAY (weave these naturally into your response) ==\n`;
-    for (const f of dueFollowUps) {
-      ctx += `- From ${f.date}: ${f.summary}\n`;
-    }
-  }
-
-  ctx += `\n${RESPECT_AND_TONE_RULES}\n`;
-
-  if (ctx) {
-    ctx = `\n--- COACH MEMORY & TONE ---${ctx}--- END MEMORY ---\n\nCRITICAL CONVERSATIONAL RULES:
+  return `\n--- COACH MEMORY & TONE ---${ctx}\n${RESPECT_AND_TONE_RULES}\n--- END MEMORY & TONE ---\n\nCRITICAL CONVERSATIONAL RULES:
 - You remember things about this person naturally like a real human friend and coach.
 - NEVER talk like a bot, database, or AI. NEVER use phrases like "According to your schedule", "According to my records", "No-BS mode is on", "As per your profile", or list database stats mechanically.
 - Speak casually, warmly, and respectfully as if texting a friend/client on WhatsApp.
-- ALWAYS follow the RESPECT & TONE RULES above (neenga, unga, ungalukku, sollunga — NEVER use 'Dei' or 'unoda').
+- ALWAYS follow the RESPECT & TONE RULES above (neenga, unga, ungalukku, sollunga — ABSOLUTELY FORBIDDEN to use 'Dei', 'Dey', 'Da', 'Di', 'unoda', 'unakku', or 'nee').
 - If a follow-up is due today, bring it up naturally mid-conversation.\n`;
-  }
-
-  return ctx;
 }
 
 /**
@@ -641,6 +636,9 @@ INSTRUCTIONS:
    - CRITICAL: DO NOT dump their streak, day count, full weekly timetable, or say phrases like "No-BS mode is on" or "According to your schedule" when they are just saying hi! Only discuss schedule or streak if they explicitly ask about it!
 2. QUESTIONS ABOUT SCHEDULE / TIMETABLE / PROGRESS: Answer directly and clearly, referencing their timetable or streak naturally.
 3. GENERAL QUESTIONS: Give a direct, punchy, helpful answer.
+4. PROACTIVE COACH CHECK (ALLERGIES & TARGET MUSCLES):
+   - If user's food allergy is not set (${user.allergy || 'none'}), PROACTIVELY add a friendly 1-line question: "By the way bro, do you have any food allergies (peanuts, dairy, gluten, or none) so I can tune your diet plan?"
+   - Or if user's target muscle focus is not set (${user.target_muscle || 'none'}), ask: "Also, what specific muscle groups (chest, back, legs, shoulders) do you want to focus on for your workout routines?"
 
 Keep it short, natural, and WhatsApp-friendly (max 60 words for casual chat, max 100 words for detailed questions). No hashtags.
 
