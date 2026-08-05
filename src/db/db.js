@@ -32,6 +32,7 @@ const userColumnMigrations = [
   ['workout_reminded_date', 'ALTER TABLE users ADD COLUMN workout_reminded_date TEXT'],
   ['workout_acknowledged_date', 'ALTER TABLE users ADD COLUMN workout_acknowledged_date TEXT'],
   ['profile_json', "ALTER TABLE users ADD COLUMN profile_json TEXT DEFAULT '{}'"],
+  ['cuisine_region', 'ALTER TABLE users ADD COLUMN cuisine_region TEXT'],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);

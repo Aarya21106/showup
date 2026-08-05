@@ -89,14 +89,29 @@ function buildCoachContext(user) {
   let ctx = '';
   if (user) {
     const db = require('../db/db');
+    const fitness = require('../utils/fitness');
     const profileJson = db.getProfileJson(user.id);
     const summaries = db.getRecentDailySummaries(user.id, 3);
     const today = require('../utils/date').todayStr(require('../config').timezone);
     const dueFollowUps = db.getDueFollowUps(today).filter(f => f.user_id === user.id);
 
+    const bmiData = fitness.calculateBMI(user.height, user.weight);
+    const targetCals = user.target_calories || fitness.calculateTargetCalories(user.height, user.weight, user.days_per_week, user.goal);
+    const macros = fitness.calculateMacros(targetCals, user.weight);
+
+    ctx += `\n== USER HEALTH & METRICS PROFILE ==\n`;
+    ctx += `- Height: ${user.height ? `${user.height} cm` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
+    ctx += `- Weight: ${user.weight ? `${user.weight} kg` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
+    if (bmiData) ctx += `- BMI: ${bmiData.bmi} (${bmiData.category})\n`;
+    ctx += `- Daily Target Calories: ${targetCals} kcal/day (${user.goal === 'weight_loss' ? 'Deficit' : 'Surplus/Hypertrophy'})\n`;
+    ctx += `- Recommended Daily Macros: Protein ~${macros.proteinGrams}g, Carbs ~${macros.carbsGrams}g, Fat ~${macros.fatGrams}g\n`;
+    ctx += `- Preferred Cuisine / Region: ${user.cuisine_region || 'Not set yet (PROACTIVELY ASK USER: e.g. South Indian / Tamil Nadu, North Indian, Western)'}\n`;
+    ctx += `- Registered Food Allergies: ${user.allergy || 'None recorded'}\n`;
+    ctx += `- Target Muscle Focus: ${user.target_muscle || 'General / Full Body'}\n`;
+
     // Profile memory
     if (profileJson && Object.keys(profileJson).length > 0) {
-      ctx += `\n== USER MEMORY (durable facts you know about this person) ==\n${JSON.stringify(profileJson)}\n`;
+      ctx += `\n== USER MEMORY (durable facts) ==\n${JSON.stringify(profileJson)}\n`;
     }
 
     // Recent daily summaries
@@ -109,19 +124,25 @@ function buildCoachContext(user) {
 
     // Due follow-ups
     if (dueFollowUps.length > 0) {
-      ctx += `\n== FOLLOW-UPS DUE TODAY (weave these naturally into your response) ==\n`;
+      ctx += `\n== FOLLOW-UPS DUE TODAY ==\n`;
       for (const f of dueFollowUps) {
         ctx += `- From ${f.date}: ${f.summary}\n`;
       }
     }
   }
 
-  return `\n--- COACH MEMORY & TONE ---${ctx}\n${RESPECT_AND_TONE_RULES}\n--- END MEMORY & TONE ---\n\nCRITICAL CONVERSATIONAL RULES:
-- You remember things about this person naturally like a real human friend and coach.
-- NEVER talk like a bot, database, or AI. NEVER use phrases like "According to your schedule", "According to my records", "No-BS mode is on", "As per your profile", or list database stats mechanically.
-- Speak casually, warmly, and respectfully as if texting a friend/client on WhatsApp.
-- ALWAYS follow the RESPECT & TONE RULES above (neenga, unga, ungalukku, sollunga — ABSOLUTELY FORBIDDEN to use 'Dei', 'Dey', 'Da', 'Di', 'unoda', 'unakku', or 'nee').
-- If a follow-up is due today, bring it up naturally mid-conversation.\n`;
+  return `\n--- COACH MEMORY & HEALTH METRICS ---${ctx}\n${RESPECT_AND_TONE_RULES}\n--- END MEMORY & METRICS ---\n\nCRITICAL HUMAN COACHING RULES:
+- You are an expert personal trainer & nutritionist.
+- PROACTIVE PROFILE COMPLETION RULES:
+  1. If user's height or weight is missing, ask for their height (cm) and weight (kg) so you can compute their BMI and daily calorie budget!
+  2. If user's cuisine/region preference is missing, ask for their preferred cuisine (e.g. South Indian / Tamil Nadu, North Indian, etc.)!
+  3. If user's food allergies are missing, ask if they have any food allergies (peanuts, dairy, gluten, or none).
+- FOOD & PORTION CALORIE CALCULATIONS:
+  * Whenever the user asks about ANY food item or dish (e.g., biryani, dosa, chicken, rice, pizza, eggs, etc.) or asks "how much biryani can I eat now?":
+  * ALWAYS state the EXACT PORTION WEIGHT IN GRAMS or realistic servings (e.g. 1 plate / 250g Chicken Biryani).
+  * ALWAYS state the exact Calories and Macros (Protein, Carbs, Fat) for that portion!
+  * ALWAYS tell them how much portion weight fits into their daily calorie target (${user?.target_calories || 2000} kcal/day)!
+- ALWAYS follow RESPECT & TONE RULES (neenga, unga, ungalukku, sollunga — ABSOLUTELY FORBIDDEN to use 'Dei', 'Dey', 'Da', 'Di', 'unoda', 'unakku', or 'nee').\n`;
 }
 
 /**
@@ -633,14 +654,16 @@ Profile summary for your internal awareness:
 
 INSTRUCTIONS:
 1. GREETINGS & CASUAL CHAT ("hi", "hey", "hello", "what's up", etc.): Reply warmly, naturally, and concisely (1-2 sentences max). E.g. "Hey ${user.name}! What's up? Ready to hit today's session?" or "Hey! How's your ${todayName} going?".
-   - CRITICAL: DO NOT dump their streak, day count, full weekly timetable, or say phrases like "No-BS mode is on" or "According to your schedule" when they are just saying hi! Only discuss schedule or streak if they explicitly ask about it!
-2. QUESTIONS ABOUT SCHEDULE / TIMETABLE / PROGRESS: Answer directly and clearly, referencing their timetable or streak naturally.
-3. GENERAL QUESTIONS: Give a direct, punchy, helpful answer.
-4. PROACTIVE COACH CHECK (ALLERGIES & TARGET MUSCLES):
-   - If user's food allergy is not set (${user.allergy || 'none'}), PROACTIVELY add a friendly 1-line question: "By the way bro, do you have any food allergies (peanuts, dairy, gluten, or none) so I can tune your diet plan?"
-   - Or if user's target muscle focus is not set (${user.target_muscle || 'none'}), ask: "Also, what specific muscle groups (chest, back, legs, shoulders) do you want to focus on for your workout routines?"
+2. FOOD / DISH / DIET / CALORIE QUESTIONS (e.g. "how much biryani can I eat?", "what to eat?", "diet plan"):
+   - Give the EXACT PORTION WEIGHT IN GRAMS (e.g. 1 plate / 250g Chicken Biryani) and exact Calories (e.g. 450 kcal) and Macros (Protein, Carbs, Fat).
+   - Tell them how this portion fits into their daily target calorie budget (${user.target_calories || 2000} kcal/day).
+   - Tailor recommendations to their preferred cuisine region (${user.cuisine_region || 'South Indian / Tamil Nadu'})!
+3. PROACTIVE PROFILE COMPLETION (Ask ONE missing detail at the end of your answer if profile is incomplete):
+   - Priority 1: If user's height or weight is missing (${user.height ? `${user.height}cm` : 'missing'} / ${user.weight ? `${user.weight}kg` : 'missing'}), ask: "By the way bro, what is your height (cm) & weight (kg)? I'll calculate your exact BMI, BMR, and daily calorie target!"
+   - Priority 2: If user's cuisine/region preference is missing (${user.cuisine_region || 'missing'}), ask: "Also, what region or cuisine do you prefer for your meals (e.g. South Indian / Tamil Nadu, North Indian, Western) so I can give you tailored diet plans?"
+   - Priority 3: If user's food allergy is missing (${user.allergy || 'missing'}), ask: "Do you have any food allergies (peanuts, dairy, gluten, or none) so I can keep your meal plans safe?"
 
-Keep it short, natural, and WhatsApp-friendly (max 60 words for casual chat, max 100 words for detailed questions). No hashtags.
+Keep it short, natural, and WhatsApp-friendly (max 80 words for casual chat, max 120 words for food/diet questions). No hashtags.
 
 Reply ONLY in ${langName}.`;
 

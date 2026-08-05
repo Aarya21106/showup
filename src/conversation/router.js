@@ -55,26 +55,62 @@ function autoCorrectUserLanguage(user, text) {
   return newLang;
 }
 
-function checkForAllergyUpdate(user, text) {
+function checkForHealthProfileUpdates(user, text) {
   if (!user || !text) return;
   const lower = text.toLowerCase();
-  
+  const fitness = require('../utils/fitness');
+  const updates = {};
+
+  // 1. Allergy extraction
   if (/(no allergy|no food allergy|onnum illa|none|naan|nill|illai|illa|nothing|no allergies|apdi ethum illai|ethum illai)/i.test(lower)) {
-    if (user.allergy !== 'none') {
-      console.log(`[Router] Updating user ${user.id} allergy to 'none'`);
-      db.updateUser(user.id, { allergy: 'none' });
-      user.allergy = 'none';
-    }
+    if (user.allergy !== 'none') updates.allergy = 'none';
   } else if (/(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)/i.test(lower)) {
     const match = lower.match(/(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)/gi);
     if (match) {
-      const allergyVal = Array.from(new Set(match)).join(', ');
-      if (user.allergy !== allergyVal) {
-        console.log(`[Router] Updating user ${user.id} allergy to '${allergyVal}'`);
-        db.updateUser(user.id, { allergy: allergyVal });
-        user.allergy = allergyVal;
-      }
+      const val = Array.from(new Set(match)).join(', ');
+      if (user.allergy !== val) updates.allergy = val;
     }
+  }
+
+  // 2. Height & Weight extraction
+  const heightMatch = lower.match(/(\d{3})\s*(cm|centimeters)?/i) || lower.match(/height\s*[:=]?\s*(\d{3})/i);
+  if (heightMatch) {
+    const h = parseFloat(heightMatch[1]);
+    if (h >= 100 && h <= 250 && user.height !== h) {
+      updates.height = h;
+    }
+  }
+
+  const weightMatch = lower.match(/(\d{2,3})\s*(kg|kilos|kilograms)/i) || lower.match(/weight\s*[:=]?\s*(\d{2,3})/i);
+  if (weightMatch) {
+    const w = parseFloat(weightMatch[1]);
+    if (w >= 30 && w <= 250 && user.weight !== w) {
+      updates.weight = w;
+    }
+  }
+
+  // 3. Cuisine / Region preference extraction
+  if (/south\s*indian|tamil|chennai|kerala|andhra|karnataka/i.test(lower)) {
+    if (user.cuisine_region !== 'South Indian') updates.cuisine_region = 'South Indian';
+  } else if (/north\s*indian|punjabi|delhi|mumbai|gujarati/i.test(lower)) {
+    if (user.cuisine_region !== 'North Indian') updates.cuisine_region = 'North Indian';
+  } else if (/western|continental/i.test(lower)) {
+    if (user.cuisine_region !== 'Western') updates.cuisine_region = 'Western';
+  }
+
+  const newHeight = updates.height || user.height;
+  const newWeight = updates.weight || user.weight;
+  if (newHeight && newWeight) {
+    const targetCals = fitness.calculateTargetCalories(newHeight, newWeight, user.days_per_week || 4, user.goal || 'muscle_gain');
+    if (user.target_calories !== targetCals) {
+      updates.target_calories = targetCals;
+    }
+  }
+
+  if (Object.keys(updates).length > 0) {
+    console.log(`[Router] Updating health profile for user ${user.id}:`, updates);
+    db.updateUser(user.id, updates);
+    Object.assign(user, updates);
   }
 }
 
@@ -107,7 +143,7 @@ async function handleIncomingMessage({ phone, body, media }) {
   if (text.length > 0) {
     if (!isNew) {
       autoCorrectUserLanguage(user, text);
-      checkForAllergyUpdate(user, text);
+      checkForHealthProfileUpdates(user, text);
     }
     db.saveChatMessage(user.id, 'user', text);
 
