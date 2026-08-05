@@ -81,9 +81,6 @@ function getLocalPath(mediaUrl) {
 async function connectToWhatsApp() {
   const { makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers } = await getBaileys();
   const authFolder = path.join(__dirname, '..', '..', 'auth_info_baileys');
-  const { state, saveCreds } = await useMultiFileAuthState(authFolder);
-
-  console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
   
   const usePairingCode = process.env.USE_PAIRING_CODE === 'true';
   let pairingPhone = process.env.WHATSAPP_PHONE ? process.env.WHATSAPP_PHONE.replace(/[^0-9]/g, '') : null;
@@ -91,6 +88,19 @@ async function connectToWhatsApp() {
   if (pairingPhone && pairingPhone.length === 10) {
     pairingPhone = '91' + pairingPhone; // Auto-prefix India country code
   }
+
+  // Ensure clean state if not registered yet so key signatures match pairing code
+  let authState = await useMultiFileAuthState(authFolder);
+  if (usePairingCode && !authState.state.creds.registered) {
+    console.log('[WhatsApp] Wiping stale session cache for clean pairing code generation...');
+    try {
+      fs.rmSync(authFolder, { recursive: true, force: true });
+    } catch (e) {}
+    authState = await useMultiFileAuthState(authFolder);
+  }
+  const { state, saveCreds } = authState;
+
+  console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
 
   let pairingCodeRequested = false;
 
