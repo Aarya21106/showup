@@ -271,6 +271,10 @@ Respond ONLY with strict JSON, no markdown fences:
     return { accepted: Boolean(parsed.accepted), reason: parsed.reason || '' };
   } catch (err) {
     throw new GeminiError(`Could not parse Gemini JSON response: ${text}`);
+  }
+}
+
+/**
  * Runs the single-turn Gemini call during the onboarding interview.
  * Evaluates the user's latest response against the onboarding checklist,
  * extracts any new information, answers any questions shortly, and
