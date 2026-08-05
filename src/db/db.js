@@ -31,6 +31,7 @@ const userColumnMigrations = [
   ['water_reminders_sent', 'ALTER TABLE users ADD COLUMN water_reminders_sent TEXT'],
   ['workout_reminded_date', 'ALTER TABLE users ADD COLUMN workout_reminded_date TEXT'],
   ['workout_acknowledged_date', 'ALTER TABLE users ADD COLUMN workout_acknowledged_date TEXT'],
+  ['profile_json', "ALTER TABLE users ADD COLUMN profile_json TEXT DEFAULT '{}'"],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -82,6 +83,7 @@ const USER_FIELDS = new Set([
   'streak', 'missed_count', 'last_prompted_date', 'last_weekly_summary_date', 'poster_path',
   'tier', 'height', 'weight', 'target_calories', 'target_muscle', 'allergy',
   'timetable', 'goal', 'water_reminders_sent', 'workout_reminded_date', 'workout_acknowledged_date',
+  'profile_json',
 ]);
 
 function updateUser(id, fields) {
@@ -190,6 +192,71 @@ function getChatMessages(userId, limit = 15) {
     .reverse();
 }
 
+// ── Memory layer helpers ──
+
+function getProfileJson(userId) {
+  const user = getUserById(userId);
+  if (!user || !user.profile_json) return {};
+  try {
+    return JSON.parse(user.profile_json);
+  } catch (err) {
+    return {};
+  }
+}
+
+function updateProfileJson(userId, profileObj) {
+  const json = JSON.stringify(profileObj);
+  db.prepare('UPDATE users SET profile_json = ? WHERE id = ?').run(json, userId);
+}
+
+function createDailySummary({ userId, date, summary, followUpWorthy, followUpDate }) {
+  const info = db.prepare(
+    `INSERT INTO daily_summaries (user_id, date, summary, follow_up_worthy, follow_up_date)
+     VALUES (@userId, @date, @summary, @followUpWorthy, @followUpDate)`
+  ).run({
+    userId,
+    date,
+    summary,
+    followUpWorthy: followUpWorthy ? 1 : 0,
+    followUpDate: followUpDate || null,
+  });
+  return info.lastInsertRowid;
+}
+
+function getRecentDailySummaries(userId, limit = 3) {
+  return db.prepare(
+    'SELECT * FROM daily_summaries WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT ?'
+  ).all(userId, limit).reverse();
+}
+
+function getDueFollowUps(today) {
+  return db.prepare(
+    'SELECT ds.*, u.phone, u.name, u.language, u.activity FROM daily_summaries ds JOIN users u ON ds.user_id = u.id WHERE ds.follow_up_date <= ? AND ds.follow_up_resolved = 0'
+  ).all(today);
+}
+
+function resolveFollowUp(summaryId) {
+  db.prepare('UPDATE daily_summaries SET follow_up_resolved = 1 WHERE id = ?').run(summaryId);
+}
+
+function getChatMessagesByDate(userId, date) {
+  return db.prepare(
+    "SELECT role, text, created_at FROM chat_messages WHERE user_id = ? AND date(created_at) = ? ORDER BY created_at ASC, id ASC"
+  ).all(userId, date);
+}
+
+function getCheckinsForWeek(userId, startDate, endDate) {
+  return db.prepare(
+    'SELECT * FROM checkins WHERE user_id = ? AND date >= ? AND date <= ? ORDER BY date ASC'
+  ).all(userId, startDate, endDate);
+}
+
+function getChatMessagesForWeek(userId, startDate, endDate) {
+  return db.prepare(
+    "SELECT role, text, created_at FROM chat_messages WHERE user_id = ? AND date(created_at) >= ? AND date(created_at) <= ? ORDER BY created_at ASC, id ASC"
+  ).all(userId, startDate, endDate);
+}
+
 module.exports = {
   db,
   getUserByPhone,
@@ -211,4 +278,13 @@ module.exports = {
   getBurnedCaloriesLogsToday,
   saveChatMessage,
   getChatMessages,
+  getProfileJson,
+  updateProfileJson,
+  createDailySummary,
+  getRecentDailySummaries,
+  getDueFollowUps,
+  resolveFollowUp,
+  getChatMessagesByDate,
+  getCheckinsForWeek,
+  getChatMessagesForWeek,
 };

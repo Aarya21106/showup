@@ -155,6 +155,28 @@ scripts/simulate.js        local terminal simulator (no Twilio/webhook needed)
   Fine at pilot scale; if you get real concurrent load, move Gemini calls to a queue so
   Twilio's webhook always gets an instant ack.
 
+## Memory layer
+
+The bot remembers users across sessions using a lightweight memory system — no vector DB or
+embeddings. A user's entire memory fits comfortably in a single prompt context window.
+
+**How it works:**
+
+- `profile_json` column on `users` — structured durable facts (goals, injuries, diet
+  restrictions, past blockers, milestones, and tone/length preferences). Updated after every
+  substantive user message via a fire-and-forget Gemini call.
+- `daily_summaries` table — each night at 23:30, a cron job summarizes the day's conversation
+  into 1-2 lines and optionally schedules a follow-up date (e.g. "check on knee in 3 days").
+- **Follow-up nudges** — once per day at the first tick, the scheduler checks for due
+  follow-ups and generates a natural, conversational callback ("hey, how's the knee doing?").
+- **Weekly personalization** — every Sunday at 22:00, a cron job reviews the week's
+  conversations and check-in results to update the user's `preferences` block (message
+  length, tone that lands).
+
+**Added Gemini calls per active user per day:** ~3-5 (profile extraction after durable
+messages, nightly summary, occasional follow-up nudge generation). At 10 DAU this stays
+well within the free-tier 1,500 RPD ceiling. At 50+ DAU, move to a paid Gemini tier.
+
 ## Deploying tomorrow
 
 Render/Railway both work well for this: it's a single long-running Node process (needed
@@ -163,3 +185,4 @@ from `.env` in the platform's dashboard, set `PUBLIC_BASE_URL` to the deployed U
 point the Twilio sandbox webhook at `<deployed-url>/webhook/whatsapp`. Note SQLite lives on
 local disk — Render's disks are ephemeral on redeploy unless you attach a persistent disk,
 so add one (or move to Postgres) before you have real users' pledge data on there.
+

@@ -241,12 +241,134 @@ async function sendWeeklySummaries() {
   }
 }
 
-function startScheduler() {
-  // Checked every minute; each user only actually fires once/day thanks to last_prompted_date.
-  cron.schedule('* * * * *', tick, { timezone: config.timezone });
-  // Sundays at 18:00 in the program timezone.
-  cron.schedule('0 18 * * 0', () => { sendWeeklySummaries(); }, { timezone: config.timezone });
-  console.log(`Scheduler started (timezone: ${config.timezone})`);
+// ── Memory layer: Nightly summary cron ──
+
+async function runNightlySummaries() {
+  const gemini = require('./services/gemini');
+  const today = todayStr(config.timezone);
+  console.log(`[Memory] Running nightly summaries for ${today}...`);
+
+  for (const user of db.getActiveUsers()) {
+    try {
+      const dayMessages = db.getChatMessagesByDate(user.id, today);
+      if (dayMessages.length === 0) continue; // no conversation today
+
+      const profileJson = db.getProfileJson(user.id);
+      const result = await gemini.generateDailySummary(user.id, today, dayMessages, profileJson);
+      if (!result) continue;
+
+      // Store the daily summary
+      db.createDailySummary({
+        userId: user.id,
+        date: today,
+        summary: result.summary,
+        followUpWorthy: result.follow_up_worthy,
+        followUpDate: result.follow_up_date || null,
+      });
+
+      // Merge any profile updates
+      if (result.profile_updates && Object.keys(result.profile_updates).length > 0) {
+        db.updateProfileJson(user.id, result.profile_updates);
+      }
+
+      console.log(`[Memory] Summary for user ${user.id}: "${result.summary}" | follow_up=${result.follow_up_worthy}`);
+    } catch (err) {
+      console.error(`[Memory] Nightly summary error for user ${user.id}:`, err.message);
+    }
+  }
 }
 
-module.exports = { startScheduler, tick, sendWeeklySummaries };
+// ── Memory layer: Follow-up nudge check (runs inside tick()) ──
+
+async function checkFollowUpNudges() {
+  const gemini = require('./services/gemini');
+  const today = todayStr(config.timezone);
+  const dueFollowUps = db.getDueFollowUps(today);
+
+  for (const followUp of dueFollowUps) {
+    try {
+      const user = db.getUserById(followUp.user_id);
+      if (!user) {
+        db.resolveFollowUp(followUp.id);
+        continue;
+      }
+
+      const profileJson = db.getProfileJson(user.id);
+      const nudge = await gemini.generateFollowUpNudge(user, followUp.summary, profileJson);
+
+      if (nudge) {
+        await whatsapp.sendText(user.phone, nudge);
+        console.log(`[Memory] Sent follow-up nudge to user ${user.id}: "${nudge}"`);
+      }
+
+      db.resolveFollowUp(followUp.id);
+    } catch (err) {
+      console.error(`[Memory] Follow-up nudge error for summary ${followUp.id}:`, err.message);
+    }
+  }
+}
+
+// ── Memory layer: Weekly personalization signal extraction ──
+
+async function runWeeklyPersonalization() {
+  const gemini = require('./services/gemini');
+  const today = todayStr(config.timezone);
+  const weekAgo = addDaysStr(today, -7);
+  console.log(`[Memory] Running weekly personalization for ${weekAgo} to ${today}...`);
+
+  for (const user of db.getActiveUsers()) {
+    try {
+      const weekMessages = db.getChatMessagesForWeek(user.id, weekAgo, today);
+      const weekCheckins = db.getCheckinsForWeek(user.id, weekAgo, today);
+      if (weekMessages.length === 0) continue;
+
+      const profileJson = db.getProfileJson(user.id);
+      const existingPrefs = profileJson.preferences || {};
+
+      const updatedPrefs = await gemini.extractPersonalizationSignals(
+        user.id, weekMessages, weekCheckins, existingPrefs
+      );
+
+      if (updatedPrefs) {
+        profileJson.preferences = updatedPrefs;
+        db.updateProfileJson(user.id, profileJson);
+        console.log(`[Memory] Updated preferences for user ${user.id}:`, JSON.stringify(updatedPrefs));
+      }
+    } catch (err) {
+      console.error(`[Memory] Weekly personalization error for user ${user.id}:`, err.message);
+    }
+  }
+}
+
+// Track whether follow-up nudges have been sent today to avoid duplicates
+let lastFollowUpCheckDate = null;
+
+function startScheduler() {
+  // Checked every minute; each user only actually fires once/day thanks to last_prompted_date.
+  cron.schedule('* * * * *', () => {
+    tick();
+
+    // Check follow-up nudges once per day (at the first tick of the day)
+    const today = todayStr(config.timezone);
+    if (lastFollowUpCheckDate !== today) {
+      lastFollowUpCheckDate = today;
+      checkFollowUpNudges().catch(err => {
+        console.error('[Memory] Follow-up nudge check failed:', err.message);
+      });
+    }
+  }, { timezone: config.timezone });
+
+  // Sundays at 18:00 in the program timezone.
+  cron.schedule('0 18 * * 0', () => { sendWeeklySummaries(); }, { timezone: config.timezone });
+
+  // Nightly summary at 23:30 every day.
+  cron.schedule('30 23 * * *', () => { runNightlySummaries(); }, { timezone: config.timezone });
+
+  // Weekly personalization at 22:00 on Sundays.
+  cron.schedule('0 22 * * 0', () => { runWeeklyPersonalization(); }, { timezone: config.timezone });
+
+  console.log(`Scheduler started (timezone: ${config.timezone}) [memory layer: nightly 23:30, weekly-prefs Sun 22:00]`);
+}
+
+module.exports = { startScheduler, tick, sendWeeklySummaries, runNightlySummaries, checkFollowUpNudges, runWeeklyPersonalization };
+

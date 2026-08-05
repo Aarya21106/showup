@@ -7,3 +7,4 @@ data/*.db-shm
 generated/
 npm-debug.log*
 .DS_Store
+auth_info_baileys/

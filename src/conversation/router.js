@@ -24,6 +24,14 @@ async function handleIncomingMessage({ phone, body, media }) {
 
   if (text.length > 0) {
     db.saveChatMessage(user.id, 'user', text);
+
+    // Fire-and-forget profile fact extraction for durable messages
+    if (!isNew && text.length > 15 && !/^(going|ok|okay|sure|done|yes|paid|reset|\/reset)$/i.test(text)) {
+      const gemini = require('../services/gemini');
+      gemini.extractProfileFacts(user, text).catch(err =>
+        console.error('[Profile] fact extraction failed:', err.message)
+      );
+    }
   }
 
   if (isNew) {

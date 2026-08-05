@@ -32,6 +32,7 @@ CREATE TABLE IF NOT EXISTS users (
   water_reminders_sent TEXT,
   workout_reminded_date TEXT,
   workout_acknowledged_date TEXT,
+  profile_json        TEXT DEFAULT '{}',
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -86,3 +87,17 @@ CREATE TABLE IF NOT EXISTS chat_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_chat_messages_user ON chat_messages(user_id);
+
+CREATE TABLE IF NOT EXISTS daily_summaries (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id             INTEGER NOT NULL REFERENCES users(id),
+  date                TEXT NOT NULL,
+  summary             TEXT NOT NULL,
+  follow_up_worthy    INTEGER DEFAULT 0,
+  follow_up_date      TEXT,
+  follow_up_resolved  INTEGER DEFAULT 0,
+  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_user_date ON daily_summaries(user_id, date);
+CREATE INDEX IF NOT EXISTS idx_daily_summaries_followup ON daily_summaries(follow_up_date, follow_up_resolved);

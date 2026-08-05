@@ -66,6 +66,48 @@ async function callGemini({ parts, jsonMode, temperature }) {
 const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish (Tamil language written using the English/Latin alphabet)' };
 
 /**
+ * Builds a compact coach context block from the user's profile_json,
+ * recent daily summaries, and any due follow-ups.
+ * Injected into the system prompt of every conversational Gemini call.
+ */
+function buildCoachContext(user) {
+  const db = require('../db/db');
+  const profileJson = db.getProfileJson(user.id);
+  const summaries = db.getRecentDailySummaries(user.id, 3);
+  const today = require('../utils/date').todayStr(require('../config').timezone);
+  const dueFollowUps = db.getDueFollowUps(today).filter(f => f.user_id === user.id);
+
+  let ctx = '';
+
+  // Profile memory
+  if (profileJson && Object.keys(profileJson).length > 0) {
+    ctx += `\n== USER MEMORY (durable facts you know about this person) ==\n${JSON.stringify(profileJson)}\n`;
+  }
+
+  // Recent daily summaries
+  if (summaries.length > 0) {
+    ctx += `\n== RECENT DAYS ==\n`;
+    for (const s of summaries) {
+      ctx += `${s.date}: ${s.summary}\n`;
+    }
+  }
+
+  // Due follow-ups
+  if (dueFollowUps.length > 0) {
+    ctx += `\n== FOLLOW-UPS DUE TODAY (weave these naturally into your response) ==\n`;
+    for (const f of dueFollowUps) {
+      ctx += `- From ${f.date}: ${f.summary}\n`;
+    }
+  }
+
+  if (ctx) {
+    ctx = `\n--- COACH MEMORY ---${ctx}--- END MEMORY ---\n\nIMPORTANT: You remember things about this person naturally. Refer to past context conversationally — like a real coach who "remembers out loud", NOT like a database query (never say "According to my records" or list facts mechanically). If a follow-up is due, bring it up warmly mid-conversation.\n`;
+  }
+
+  return ctx;
+}
+
+/**
  * Produces a short, warm one-line acknowledgment of the user's onboarding answer,
  * in their chosen language. Falls back to a generic line if Gemini is unavailable.
  */
@@ -234,11 +276,13 @@ Respond ONLY with strict JSON, no markdown fences:
  * extracts any new information, answers any questions shortly, and
  * asks for the next missing information.
  */
-async function conductOnboardingInterview({ currentProfile, message, history }) {
+async function conductOnboardingInterview({ currentProfile, message, history, user }) {
   const profileString = JSON.stringify(currentProfile, null, 2);
   const historyString = (history || []).map(h => `${h.role === 'user' ? 'User' : 'Bot'}: ${h.text}`).join('\n') || '(no prior history)';
+  const coachCtx = user ? buildCoachContext(user) : '';
   const prompt = `You are ShowUp, a fitness accountability bot conducting an onboarding interview on WhatsApp.
 Your tone is like a warm, direct, no-BS fitness coach and friend. This bot supports accountability for gym workouts, running, walking, and cycling.
+${coachCtx}
 
 We need to collect these fields for the user's checklist:
 1. "name": The user's name.
@@ -395,8 +439,10 @@ async function getExerciseSuggestions(user, message, muscleGroup) {
   const db = require('../db/db');
   const chatHistory = db.getChatMessages(user.id, 10);
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
+  const coachCtx = buildCoachContext(user);
 
   const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+${coachCtx}
 The user is asking for exercise suggestions to improve the muscle group: "${muscleGroup}". Here is their profile:
 - Name: ${user.name}
 - Goal: ${user.goal || 'general fitness'}
@@ -408,6 +454,7 @@ ${historyString}
 User message: "${message}"
 
 Provide a short, highly practical, and motivating list of 3-4 exercises they can do for "${muscleGroup}".
+If the user has any injuries or physical limitations in your memory, respect those and suggest alternatives.
 Give a brief tip on form/intensity for each. Keep it extremely punchy and WhatsApp-friendly (max 110 words).
 Reply ONLY in ${langName}.`;
 
@@ -421,8 +468,10 @@ async function getDietSuggestions(user, message) {
   const db = require('../db/db');
   const chatHistory = db.getChatMessages(user.id, 10);
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
+  const coachCtx = buildCoachContext(user);
   
   const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+${coachCtx}
 The user is asking for diet advice or a diet plan. Here is their profile:
 - Name: ${user.name}
 - Height: ${user.height} cm
@@ -437,6 +486,7 @@ ${historyString}
 User message: "${message}"
 
 Provide a short, highly practical, and motivating diet suggestion or plan that matches their calorie target (${targetCalories} kcal).
+Also account for any dietary restrictions or preferences from your memory about this user.
 Give them clear examples of what to eat for breakfast, lunch, and dinner. Keep it punchy and WhatsApp-friendly (max 140 words).
 
 CRITICAL REQUIREMENTS:
@@ -506,7 +556,9 @@ Respond ONLY with strict JSON, no markdown fences:
 
 async function generateWorkoutReminder(user, focus) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const coachCtx = buildCoachContext(user);
   const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+${coachCtx}
 The user is about to do their workout. Here is their profile:
 - Name: ${user.name}
 - Activity: ${user.activity}
@@ -516,6 +568,7 @@ The user is about to do their workout. Here is their profile:
 Generate a short workout reminder and daily motivation message in ${langName}.
 Start with a friendly but direct reminder about today's workout focus (e.g. "Hey John, it's Chest & Triceps time!").
 Include ONE highly motivating, punchy sentence (no-BS, inspiring) to get them hyped to show up.
+If you have any follow-ups due from your memory, weave them in naturally.
 Ask them to reply "going", "okay", or "done" when they start or finish.
 Keep it under 60 words and WhatsApp-friendly. No hashtags.`;
 
@@ -531,8 +584,10 @@ async function handleGeneralQuery(user, message) {
   const timetableStr = user.timetable ? JSON.stringify(JSON.parse(user.timetable), null, 2) : 'No timetable set';
   const todayName = new Intl.DateTimeFormat('en-US', { weekday: 'long', timeZone: require('../config').timezone }).format(new Date());
   const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const coachCtx = buildCoachContext(user);
 
   const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+${coachCtx}
 The user is asking a general question, chatting, checking their schedule/timetable, or asking for progress.
 Here is their profile:
 - Name: ${user.name}
@@ -561,6 +616,168 @@ Reply ONLY in ${langName}.`;
   return text.trim();
 }
 
+// ── Memory layer Gemini functions ──
+
+async function extractProfileFacts(user, message) {
+  const db = require('../db/db');
+  const existingProfile = db.getProfileJson(user.id);
+  const existingStr = JSON.stringify(existingProfile);
+
+  const prompt = `You are a memory extraction engine for a fitness coaching bot.
+The user just sent a message. Extract any durable facts worth remembering long-term.
+
+Existing profile memory:
+${existingStr}
+
+User message:
+"${message}"
+
+User context: Name=${user.name}, Activity=${user.activity}, Goal=${user.goal || 'not set'}
+
+Rules:
+1. Extract facts into these categories: goals, injuries_or_limits, allergies_or_diet_restrictions, past_blockers, milestones, preferences (message_length, tone_that_lands, notes).
+2. NEVER silently drop existing facts. Only update/overwrite when the new message clearly contradicts or updates (e.g. "knee's fine now" → mark resolved, don't delete).
+3. For injuries that are resolved, set them as { "injury": "...", "status": "resolved", "resolved_date": "today" } rather than removing.
+4. If the message contains nothing durable (just "ok", "done", daily noise), return the existing profile unchanged.
+5. Keep all values concise (single phrases, not sentences).
+
+Respond ONLY with the complete updated profile JSON, no markdown fences:
+{
+  "goals": ["..."],
+  "injuries_or_limits": ["..."],
+  "allergies_or_diet_restrictions": ["..."],
+  "past_blockers": ["..."],
+  "milestones": ["..."],
+  "preferences": {
+    "message_length": "short|medium|long",
+    "tone_that_lands": "e.g. humor, tough-love, gentle",
+    "notes": "free text"
+  }
+}`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.1 });
+    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    const parsed = JSON.parse(cleaned);
+    db.updateProfileJson(user.id, parsed);
+    return parsed;
+  } catch (err) {
+    console.error('[Memory] extractProfileFacts failed:', err.message);
+    return existingProfile;
+  }
+}
+
+async function generateDailySummary(userId, date, chatMessages, existingProfileJson) {
+  const db = require('../db/db');
+  const user = db.getUserById(userId);
+  if (!user) return null;
+
+  const messagesStr = chatMessages.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n');
+  const profileStr = JSON.stringify(existingProfileJson);
+
+  const prompt = `You are a summarization engine for a fitness coaching bot.
+
+User: ${user.name} (Activity: ${user.activity}, Goal: ${user.goal || 'general'})
+Date: ${date}
+
+Existing profile memory:
+${profileStr}
+
+Today's full conversation:
+${messagesStr}
+
+Do TWO things:
+1. SUMMARIZE today's conversation in 1-2 concise lines capturing what happened (workout done? mood? topics discussed?).
+2. FOLLOW-UP JUDGMENT: Did the user mention anything worth checking back on in 2-3 days? Examples: soreness/pain, an upcoming exam or stressful event, a specific goal deadline, trying a new exercise for the first time, emotional struggle. If yes, set follow_up_worthy=true and suggest a follow_up_date (YYYY-MM-DD, typically 2-3 days from ${date}).
+3. PROFILE UPDATES: Extract any new durable facts from today's conversation that aren't already in the profile. Same merge rules as profile extraction — never drop existing facts.
+
+Respond ONLY with strict JSON, no markdown fences:
+{
+  "summary": "string (1-2 lines)",
+  "follow_up_worthy": boolean,
+  "follow_up_date": "YYYY-MM-DD or null",
+  "profile_updates": { ...updated profile JSON or null if no changes }
+}`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.2 });
+    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error('[Memory] generateDailySummary failed:', err.message);
+    return null;
+  }
+}
+
+async function extractPersonalizationSignals(userId, weekMessages, checkinResults, existingPreferences) {
+  const db = require('../db/db');
+  const user = db.getUserById(userId);
+  if (!user) return existingPreferences;
+
+  const messagesStr = weekMessages.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n');
+  const checkinsStr = checkinResults.map(c => `${c.date}: status=${c.status}, description="${c.description || ''}"`).join('\n');
+  const prefsStr = JSON.stringify(existingPreferences);
+
+  const prompt = `You are a personalization engine for a fitness coaching bot.
+
+User: ${user.name}
+This week's conversation:
+${messagesStr}
+
+This week's check-in results:
+${checkinsStr}
+
+Current preferences:
+${prefsStr}
+
+Analyze patterns:
+1. Message length that gets engagement: Did short check-in prompts get faster/better replies than long ones?
+2. Nudge phrasing that correlates with completed check-ins vs missed ones.
+3. Tone that gets warmer responses (humor landing vs falling flat).
+
+Return updated preferences. Only change what the data supports — don't invent signals without evidence.
+
+Respond ONLY with strict JSON, no markdown fences:
+{
+  "message_length": "short|medium|long",
+  "tone_that_lands": "string describing what works",
+  "notes": "any other observations worth remembering"
+}`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.2 });
+    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error('[Memory] extractPersonalizationSignals failed:', err.message);
+    return existingPreferences;
+  }
+}
+
+async function generateFollowUpNudge(user, originalSummary, profileJson) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const profileStr = JSON.stringify(profileJson);
+
+  const prompt = `You are ShowUp, a warm, direct fitness coach.
+You need to check in on something the user mentioned a few days ago.
+
+User: ${user.name}
+Original day summary that triggered this follow-up: "${originalSummary}"
+User's profile memory: ${profileStr}
+
+Generate a SHORT, natural, caring follow-up message in ${langName}.
+Bring it up warmly mid-conversation style — like a real coach who remembered ("hey, how's that knee doing?"), NOT like a database notification.
+Keep it under 30 words. One sentence, maybe two max.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.8 });
+    return text.trim();
+  } catch (err) {
+    console.error('[Memory] generateFollowUpNudge failed:', err.message);
+    return null;
+  }
+}
+
 module.exports = {
   GeminiError,
   acknowledgeAnswer,
@@ -574,6 +791,10 @@ module.exports = {
   getDietSuggestions,
   conductTimetableInterview,
   generateWorkoutReminder,
-  handleGeneralQuery
+  handleGeneralQuery,
+  buildCoachContext,
+  extractProfileFacts,
+  generateDailySummary,
+  extractPersonalizationSignals,
+  generateFollowUpNudge,
 };
-

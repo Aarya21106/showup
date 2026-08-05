@@ -88,6 +88,7 @@ async function handleOnboarding(user, body) {
       currentProfile,
       message: body.trim(),
       history,
+      user,
     });
   } catch (err) {
     console.error('Error conducting onboarding interview:', err);
