@@ -290,7 +290,7 @@ ${coachCtx}
 
 We need to collect these fields for the user's checklist:
 1. "name": The user's name.
-2. "language": Preferred language (MUST be exactly one of 'en' for English, 'ta' for Tamil, or 'hi' for Hindi).
+2. "language": Preferred language (MUST be exactly one of 'en' for English, 'ta' for Tamil, 'hi' for Hindi, or 'tl' for Tanglish - Tamil written using Latin script).
 3. "activity": The activity they commit to (MUST be exactly one of 'gym', 'running', 'walking', or 'cycling').
 4. "tier": Pricing plan preference. MUST be exactly one of 'free' (free trial accountability), 'pro_120' (120 INR plan with diet/calorie tracking), or 'pro_350' (350 INR plan with full coaching & exercises).
 5. "days_per_week": How many days a week they commit to their activity (an integer between 1 and 7).
@@ -319,7 +319,7 @@ Instructions:
    - For "tier", extract it as exactly one of 'free', 'pro_120', or 'pro_350'. If they ask about the plans, explain the options (Free = accountability only, Pro 120 = diet/calorie tracking, Pro 350 = workout coaching/exercises) and ask them to select one.
    - For "days_per_week", try to extract just the number (1-7).
    - For "checkin_time", format it strictly as "HH:MM" (24-hour, e.g. "07:00" or "18:30").
-   - For "language", if they specified English/Tamil/Hindi, set it to "en"/"ta"/"hi" respectively.
+   - For "language", if they specified English/Tamil/Hindi/Tanglish (or are typing in Tamil using Latin script), set it to "en"/"ta"/"hi"/"tl" respectively.
    - For "commitment_score", extract the number (1-10) or choose a reasonable default if they just say "very high" or "committed" (e.g., 9).
    - For "height" (REAL) and "weight" (REAL), extract them as numerical values (e.g. "170 cm" -> 170, "65 kg" -> 65) ONLY if the tier is 'pro_120' or 'pro_350'.
    - For "target_muscle", extract the muscle focus group (e.g., chest, legs, shoulders, core, full body) ONLY if the tier is 'pro_120' or 'pro_350'.
@@ -330,7 +330,7 @@ Instructions:
 {
   "extracted": {
     "name": string|null,
-    "language": "en"|"ta"|"hi"|null,
+    "language": "en"|"ta"|"hi"|"tl"|null,
     "activity": "gym"|"running"|"walking"|"cycling"|null,
     "tier": "free"|"pro_120"|"pro_350"|null,
     "days_per_week": number|null,
