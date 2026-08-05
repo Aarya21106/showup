@@ -85,7 +85,11 @@ async function connectToWhatsApp() {
   console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
   
   const usePairingCode = process.env.USE_PAIRING_CODE === 'true';
-  const pairingPhone = process.env.WHATSAPP_PHONE ? process.env.WHATSAPP_PHONE.replace(/[^0-9]/g, '') : null;
+  let pairingPhone = process.env.WHATSAPP_PHONE ? process.env.WHATSAPP_PHONE.replace(/[^0-9]/g, '') : null;
+  
+  if (pairingPhone && pairingPhone.length === 10) {
+    pairingPhone = '91' + pairingPhone; // Auto-prefix India country code
+  }
 
   sock = makeWASocket({
     auth: state,
@@ -96,13 +100,13 @@ async function connectToWhatsApp() {
   sock.ev.on('creds.update', saveCreds);
 
   if (usePairingCode && pairingPhone && !sock.authState.creds.registered) {
-    console.log(`[WhatsApp] Requesting pairing code for phone: ${pairingPhone}...`);
+    console.log(`[WhatsApp] Requesting pairing code for phone: +${pairingPhone}...`);
     setTimeout(async () => {
       try {
         const code = await sock.requestPairingCode(pairingPhone);
         const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
         console.log('\n==================================================');
-        console.log(`   YOUR WHATSAPP PAIRING CODE IS: ${formattedCode}   `);
+        console.log(`   YOUR WHATSAPP PAIRING CODE FOR +${pairingPhone} IS: ${formattedCode}   `);
         console.log('   Enter this on your phone under Linked Devices  ');
         console.log('==================================================\n');
       } catch (err) {
