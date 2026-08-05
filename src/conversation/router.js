@@ -14,8 +14,49 @@ const ONBOARD_STATES = new Set([
 
 const CHECKIN_STATES = new Set([states.ACTIVE, states.AWAITING_CHECKIN_FOLLOWUP]);
 
+function autoCorrectUserLanguage(user, text) {
+  if (!user || !text || text.length < 1) return user.language;
+
+  const hasTamilScript = /[\u0B80-\u0BFF]/.test(text);
+  const hasDevanagariScript = /[\u0900-\u097F]/.test(text);
+
+  let newLang = user.language;
+
+  if (hasTamilScript) {
+    newLang = 'ta';
+  } else if (hasDevanagariScript) {
+    newLang = 'hi';
+  } else {
+    // Typed in Latin/English script
+    const lower = text.toLowerCase();
+    
+    // Explicit language switch request
+    if (lower.includes('tanglish') || lower.includes('tanlish')) newLang = 'tl';
+    else if (lower.includes('hinglish') || lower.includes('hinlish')) newLang = 'hl';
+    else if (lower.includes('english')) newLang = 'en';
+    else if (lower.includes('tamil')) newLang = 'tl'; // Typed "tamil" in English letters = Tanglish
+    else if (lower.includes('hindi')) newLang = 'hl'; // Typed "hindi" in English letters = Hinglish
+    else {
+      // Automatic detection for users whose stored language was set to pure script ('ta' / 'hi')
+      if (user.language === 'ta') {
+        newLang = 'tl'; // Default to Tanglish when typing in Latin script
+      } else if (user.language === 'hi') {
+        newLang = 'hl'; // Default to Hinglish when typing in Latin script
+      }
+    }
+  }
+
+  if (newLang !== user.language) {
+    console.log(`[Router] Dynamically updated user ${user.id} language from '${user.language}' -> '${newLang}'`);
+    db.updateUser(user.id, { language: newLang });
+    user.language = newLang;
+  }
+
+  return newLang;
+}
+
 /**
- * media: { mediaUrl?, mimeType?, testBase64? } - testBase64 is set only by the local
+ * media: { mediaUrl?, mimeType?, testBase64 } - testBase64 is set only by the local
  * simulate.js harness, which has no real Twilio account to host media on.
  */
 async function handleIncomingMessage({ phone, body, media }) {
@@ -23,6 +64,9 @@ async function handleIncomingMessage({ phone, body, media }) {
   const text = (body || '').trim();
 
   if (text.length > 0) {
+    if (!isNew) {
+      autoCorrectUserLanguage(user, text);
+    }
     db.saveChatMessage(user.id, 'user', text);
 
     // Fire-and-forget profile fact extraction for durable messages
