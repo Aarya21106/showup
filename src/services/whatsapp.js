@@ -35,6 +35,7 @@ if (process.env.MOCK_WHATSAPP === 'true') {
 }
 
 const qrcode = require('qrcode-terminal');
+const QRCode = require('qrcode');
 const pino = require('pino');
 const path = require('path');
 const fs = require('fs');
@@ -42,6 +43,7 @@ const fs = require('fs');
 let sock = null;
 let isConnected = false;
 let pairingCodeRequested = false;
+let latestQrDataUrl = null;
 let makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers;
 
 async function getBaileys() {
@@ -112,6 +114,10 @@ async function connectToWhatsApp() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
+      try {
+        latestQrDataUrl = await QRCode.toDataURL(qr);
+      } catch (e) {}
+
       if (usePairingCode && pairingPhone && !state.creds.registered && !pairingCodeRequested) {
         pairingCodeRequested = true;
         try {
@@ -128,13 +134,11 @@ async function connectToWhatsApp() {
         }
       }
       
-      if (!usePairingCode) {
-        console.log('\n==================================================');
-        console.log('   SCAN THIS QR CODE WITH YOUR WHATSAPP TO LINK   ');
-        console.log('==================================================');
-        qrcode.generate(qr, { small: true });
-        console.log('==================================================\n');
-      }
+      console.log('\n==================================================');
+      console.log('   SCAN THIS QR CODE OR OPEN /qr ON YOUR WEBSITE   ');
+      console.log('==================================================');
+      qrcode.generate(qr, { small: true });
+      console.log('==================================================\n');
     }
 
     if (connection === 'close') {
@@ -284,5 +288,7 @@ module.exports = {
   sendText,
   sendMedia,
   fetchInboundMedia,
+  getLatestQrDataUrl: () => latestQrDataUrl,
+  getIsConnected: () => isConnected,
   isMock: false
 };
