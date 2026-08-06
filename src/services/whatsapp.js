@@ -93,13 +93,13 @@ async function connectToWhatsApp() {
 
   console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
 
-  let isRequestingCode = false;
+  let pairingCodeRequested = false;
 
   sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: !usePairingCode,
-    browser: ['Chrome (Linux)', '', ''],
+    browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '20.0.04'],
     syncFullHistory: false,
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000,
@@ -113,10 +113,10 @@ async function connectToWhatsApp() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      if (usePairingCode && pairingPhone && !state.creds.registered && !isRequestingCode) {
-        isRequestingCode = true;
+      if (usePairingCode && pairingPhone && !state.creds.registered && !pairingCodeRequested) {
+        pairingCodeRequested = true;
         try {
-          console.log(`[WhatsApp] Generating active pairing code for +${pairingPhone}...`);
+          console.log(`[WhatsApp] Requesting single pairing code for phone: +${pairingPhone}...`);
           const code = await sock.requestPairingCode(pairingPhone);
           const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
           console.log('\n==================================================');
@@ -125,9 +125,7 @@ async function connectToWhatsApp() {
           console.log('==================================================\n');
         } catch (err) {
           console.error('[WhatsApp] Failed to request pairing code:', err.message);
-        } finally {
-          // Allow re-generating code if key rotates after 15s
-          setTimeout(() => { isRequestingCode = false; }, 15000);
+          pairingCodeRequested = false;
         }
       }
       
