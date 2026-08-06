@@ -89,30 +89,22 @@ async function connectToWhatsApp() {
     pairingPhone = '91' + pairingPhone; // Auto-prefix India country code
   }
 
-  // Ensure clean state if not registered yet so key signatures match pairing code
-  let authState = await useMultiFileAuthState(authFolder);
-  if (usePairingCode && !authState.state.creds.registered) {
-    console.log('[WhatsApp] Wiping stale session cache for clean pairing code generation...');
-    try {
-      fs.rmSync(authFolder, { recursive: true, force: true });
-    } catch (e) {}
-    authState = await useMultiFileAuthState(authFolder);
-  }
-  const { state, saveCreds } = authState;
+  const { state, saveCreds } = await useMultiFileAuthState(authFolder);
 
   console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
 
-  let pairingCodeRequested = false;
+  let isRequestingCode = false;
 
   sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
     printQRInTerminal: !usePairingCode,
-    browser: Browsers ? Browsers.ubuntu('Chrome') : ['Ubuntu', 'Chrome', '20.0.04'],
+    browser: ['Chrome (Linux)', '', ''],
     syncFullHistory: false,
     connectTimeoutMs: 60000,
     defaultQueryTimeoutMs: 60000,
     keepAliveIntervalMs: 25000,
+    markOnlineOnConnect: false,
   });
 
   sock.ev.on('creds.update', saveCreds);
@@ -121,19 +113,21 @@ async function connectToWhatsApp() {
     const { connection, lastDisconnect, qr } = update;
 
     if (qr) {
-      if (usePairingCode && pairingPhone && !pairingCodeRequested) {
-        pairingCodeRequested = true;
+      if (usePairingCode && pairingPhone && !state.creds.registered && !isRequestingCode) {
+        isRequestingCode = true;
         try {
-          console.log(`[WhatsApp] Requesting pairing code for phone: +${pairingPhone}...`);
+          console.log(`[WhatsApp] Generating active pairing code for +${pairingPhone}...`);
           const code = await sock.requestPairingCode(pairingPhone);
           const formattedCode = code?.match(/.{1,4}/g)?.join('-') || code;
           console.log('\n==================================================');
           console.log(`   YOUR WHATSAPP PAIRING CODE FOR +${pairingPhone} IS: ${formattedCode}   `);
-          console.log('   Enter this on your phone under Linked Devices  ');
+          console.log('   (Enter this in WhatsApp -> Linked Devices)   ');
           console.log('==================================================\n');
         } catch (err) {
           console.error('[WhatsApp] Failed to request pairing code:', err.message);
-          pairingCodeRequested = false;
+        } finally {
+          // Allow re-generating code if key rotates after 15s
+          setTimeout(() => { isRequestingCode = false; }, 15000);
         }
       }
       
