@@ -41,6 +41,7 @@ const fs = require('fs');
 
 let sock = null;
 let isConnected = false;
+let pairingCodeRequested = false;
 let makeWASocket, useMultiFileAuthState, DisconnectReason, Browsers;
 
 async function getBaileys() {
@@ -93,8 +94,6 @@ async function connectToWhatsApp() {
 
   console.log('[WhatsApp] Connecting to WhatsApp Web protocol...');
 
-  let pairingCodeRequested = false;
-
   sock = makeWASocket({
     auth: state,
     logger: pino({ level: 'silent' }),
@@ -144,6 +143,7 @@ async function connectToWhatsApp() {
       const shouldClear = statusCode === DisconnectReason.loggedOut; // Only wipe on explicit phone logout (403)
       console.log(`[WhatsApp] Connection closed. Status: ${statusCode}. Clearing credentials? ${shouldClear}`);
       if (shouldClear) {
+        pairingCodeRequested = false;
         console.log('[WhatsApp] Explicit logout detected. Wiping credentials folder...');
         try {
           fs.rmSync(authFolder, { recursive: true, force: true });
