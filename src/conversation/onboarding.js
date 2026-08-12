@@ -64,6 +64,13 @@ async function handleOnboarding(user, body) {
     return;
   }
 
+  const isCardioActivity = ['running', 'walking', 'cycling'].includes(user.activity);
+
+  let existingWeeklyPlan = null;
+  try {
+    existingWeeklyPlan = user.weekly_plan ? JSON.parse(user.weekly_plan) : null;
+  } catch (e) { existingWeeklyPlan = null; }
+
   // Construct current profile for checklist
   const currentProfile = {
     name: user.name || null,
@@ -79,6 +86,9 @@ async function handleOnboarding(user, body) {
     height: user.height !== null && user.height !== undefined ? user.height : null,
     weight: user.weight !== null && user.weight !== undefined ? user.weight : null,
     target_muscle: user.target_muscle || null,
+    fitness_app: isCardioActivity ? (user.fitness_app || null) : null,
+    weekly_goal_distance_km: isCardioActivity ? (user.weekly_goal_distance_km !== null && user.weekly_goal_distance_km !== undefined ? user.weekly_goal_distance_km : null) : null,
+    weekly_plan: isCardioActivity ? existingWeeklyPlan : null,
   };
 
   // Parse existing onboarding history
@@ -118,7 +128,11 @@ async function handleOnboarding(user, body) {
   };
   for (const key of Object.keys(currentProfile)) {
     if (extracted[key] !== undefined && extracted[key] !== null && extracted[key] !== '') {
-      fieldsToUpdate[key] = extracted[key];
+      if (key === 'weekly_plan' && Array.isArray(extracted[key])) {
+        fieldsToUpdate[key] = JSON.stringify(extracted[key]);
+      } else {
+        fieldsToUpdate[key] = extracted[key];
+      }
     }
   }
 
@@ -134,8 +148,21 @@ async function handleOnboarding(user, body) {
     updatedUser.target_muscle
   );
 
+  const updatedIsCardio = ['running', 'walking', 'cycling'].includes(updatedUser.activity);
+  const hasValidWeeklyPlan = (() => {
+    if (!updatedUser.weekly_plan) return false;
+    try {
+      const plan = JSON.parse(updatedUser.weekly_plan);
+      return Array.isArray(plan) && plan.length > 0 && plan.every(a => a.activity && a.days_per_week && a.goal_distance_km);
+    } catch (e) { return false; }
+  })();
+  const hasCardioFields = !updatedIsCardio || (
+    updatedUser.fitness_app &&
+    (hasValidWeeklyPlan || (updatedUser.weekly_goal_distance_km !== null && updatedUser.weekly_goal_distance_km !== undefined))
+  );
+
   // Check if all required fields are collected
-  const isProfileComplete = 
+  const isProfileComplete =
     updatedUser.name &&
     updatedUser.language &&
     updatedUser.activity &&
@@ -149,7 +176,8 @@ async function handleOnboarding(user, body) {
     updatedUser.commitment_score !== undefined &&
     updatedUser.allergy !== null &&
     updatedUser.allergy !== undefined &&
-    hasProFields;
+    hasProFields &&
+    hasCardioFields;
 
   if (isProfileComplete) {
     const updated = db.updateUser(user.id, { state: states.AWAITING_PAYMENT, onboarding_history: '[]' });

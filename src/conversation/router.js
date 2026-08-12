@@ -147,8 +147,9 @@ async function handleIncomingMessage({ phone, body, media }) {
     }
     db.saveChatMessage(user.id, 'user', text);
 
-    // Fire-and-forget profile fact extraction for durable messages
-    if (!isNew && text.length > 15 && !/^(going|ok|okay|sure|done|yes|paid|reset|\/reset)$/i.test(text)) {
+    // Fire-and-forget profile fact extraction for durable messages (skip during onboarding — interview handles it)
+    const onboardingStates = new Set(['ONBOARD_NAME', 'ONBOARD_LANGUAGE', 'ONBOARD_ACTIVITY', 'ONBOARD_DAYS', 'ONBOARD_TIME', 'ONBOARD_BLOCKER', 'ONBOARD_VISION', 'ONBOARD_COMMITMENT']);
+    if (!isNew && !onboardingStates.has(user.state) && text.length > 15 && !/^(going|ok|okay|sure|done|yes|paid|reset|\/reset)$/i.test(text)) {
       const gemini = require('../services/gemini');
       gemini.extractProfileFacts(user, text).catch(err =>
         console.error('[Profile] fact extraction failed:', err.message)

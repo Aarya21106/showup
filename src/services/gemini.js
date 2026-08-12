@@ -6,14 +6,14 @@ const ENDPOINT = (model) =>
 
 class GeminiError extends Error {}
 
-async function callGemini({ parts, jsonMode, temperature }) {
+async function callGemini({ parts, jsonMode, temperature, maxTokens }) {
   if (!config.geminiConfigured) {
     throw new GeminiError('GEMINI_API_KEY is not set');
   }
 
   const generationConfig = {
     temperature: temperature ?? 0.6,
-    maxOutputTokens: 400,
+    maxOutputTokens: maxTokens ?? 800,
   };
   if (jsonMode) generationConfig.responseMimeType = 'application/json';
 
@@ -95,19 +95,71 @@ function buildCoachContext(user) {
     const today = require('../utils/date').todayStr(require('../config').timezone);
     const dueFollowUps = db.getDueFollowUps(today).filter(f => f.user_id === user.id);
 
-    const bmiData = fitness.calculateBMI(user.height, user.weight);
-    const targetCals = user.target_calories || fitness.calculateTargetCalories(user.height, user.weight, user.days_per_week, user.goal);
-    const macros = fitness.calculateMacros(targetCals, user.weight);
+    const isCardio = ['running', 'walking', 'cycling'].includes(user.activity);
 
-    ctx += `\n== USER HEALTH & METRICS PROFILE ==\n`;
-    ctx += `- Height: ${user.height ? `${user.height} cm` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
-    ctx += `- Weight: ${user.weight ? `${user.weight} kg` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
-    if (bmiData) ctx += `- BMI: ${bmiData.bmi} (${bmiData.category})\n`;
-    ctx += `- Daily Target Calories: ${targetCals} kcal/day (${user.goal === 'weight_loss' ? 'Deficit' : 'Surplus/Hypertrophy'})\n`;
-    ctx += `- Recommended Daily Macros: Protein ~${macros.proteinGrams}g, Carbs ~${macros.carbsGrams}g, Fat ~${macros.fatGrams}g\n`;
-    ctx += `- Preferred Cuisine / Region: ${user.cuisine_region || 'Not set yet (PROACTIVELY ASK USER: e.g. South Indian / Tamil Nadu, North Indian, Western)'}\n`;
-    ctx += `- Registered Food Allergies: ${user.allergy || 'None recorded'}\n`;
-    ctx += `- Target Muscle Focus: ${user.target_muscle || 'General / Full Body'}\n`;
+    if (isCardio) {
+      ctx += `\n== CARDIO PLAN & WEEKLY PROGRESS ==\n`;
+      ctx += `- Fitness App: ${user.fitness_app || 'Not set'}\n`;
+
+      try {
+        // Parse weekly plan (multi-activity aware)
+        let activities = [];
+        if (user.weekly_plan) {
+          try { activities = JSON.parse(user.weekly_plan); } catch (e) { /* ignore */ }
+        }
+        if (activities.length === 0 && user.activity) {
+          activities = [{ activity: user.activity, days_per_week: user.days_per_week || 3, goal_distance_km: user.weekly_goal_distance_km || 3.0 }];
+        }
+
+        // Current week bounds (Mon–Sun)
+        const nowStr = new Intl.DateTimeFormat('en-CA', { timeZone: require('../config').timezone }).format(new Date());
+        const d = new Date(nowStr + 'T00:00:00');
+        const dayOfWeek = d.getDay();
+        const mondayOffset = (dayOfWeek === 0 ? -6 : 1 - dayOfWeek);
+        const monday = new Date(d);
+        monday.setDate(d.getDate() + mondayOffset);
+        const sunday = new Date(monday);
+        sunday.setDate(monday.getDate() + 6);
+        const fmt = (dt) => dt.toISOString().split('T')[0];
+        const weekStart = fmt(monday);
+        const weekEnd = fmt(sunday);
+
+        for (const plan of activities) {
+          const weekSessions = db.getWeekCardioCheckinsByActivity(user.id, weekStart, weekEnd, plan.activity);
+          const recentSessions = db.getRecentCardioCheckinsByActivity(user.id, plan.activity, 5);
+          ctx += `\n[${plan.activity.toUpperCase()}] Goal: ${plan.goal_distance_km}km/session × ${plan.days_per_week} days/week\n`;
+          ctx += `  This week: ${weekSessions.length}/${plan.days_per_week} sessions\n`;
+          if (weekSessions.length > 0) {
+            for (const s of weekSessions) {
+              ctx += `    • ${s.date}: ${s.distance_km ? s.distance_km.toFixed(2) + 'km' : '?km'}${s.pace_min_per_km ? ` @ ${s.pace_min_per_km.toFixed(1)} min/km` : ''}${s.activity_calories ? ` (${s.activity_calories} kcal)` : ''}\n`;
+            }
+          }
+          if (recentSessions.length >= 2) {
+            const paces = recentSessions.filter(s => s.pace_min_per_km).map(s => s.pace_min_per_km);
+            if (paces.length >= 2) {
+              const trend = paces[0] < paces[paces.length - 1] ? 'improving' : paces[0] > paces[paces.length - 1] ? 'slowing' : 'steady';
+              ctx += `  Pace trend: ${trend} (latest ${paces[0].toFixed(1)} min/km)\n`;
+            }
+          }
+        }
+      } catch (e) {
+        // silently ignore
+      }
+    } else {
+      const bmiData = fitness.calculateBMI(user.height, user.weight);
+      const targetCals = user.target_calories || fitness.calculateTargetCalories(user.height, user.weight, user.days_per_week, user.goal);
+      const macros = fitness.calculateMacros(targetCals, user.weight);
+
+      ctx += `\n== USER HEALTH & METRICS PROFILE ==\n`;
+      ctx += `- Height: ${user.height ? `${user.height} cm` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
+      ctx += `- Weight: ${user.weight ? `${user.weight} kg` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
+      if (bmiData) ctx += `- BMI: ${bmiData.bmi} (${bmiData.category})\n`;
+      ctx += `- Daily Target Calories: ${targetCals} kcal/day (${user.goal === 'weight_loss' ? 'Deficit' : 'Surplus/Hypertrophy'})\n`;
+      ctx += `- Recommended Daily Macros: Protein ~${macros.proteinGrams}g, Carbs ~${macros.carbsGrams}g, Fat ~${macros.fatGrams}g\n`;
+      ctx += `- Preferred Cuisine / Region: ${user.cuisine_region || 'Not set yet (PROACTIVELY ASK USER: e.g. South Indian / Tamil Nadu, North Indian, Western)'}\n`;
+      ctx += `- Registered Food Allergies: ${user.allergy || 'None recorded'}\n`;
+      ctx += `- Target Muscle Focus: ${user.target_muscle || 'General / Full Body'}\n`;
+    }
 
     // Profile memory
     if (profileJson && Object.keys(profileJson).length > 0) {
@@ -131,9 +183,17 @@ function buildCoachContext(user) {
     }
   }
 
+  const isCardioUser = user && ['running', 'walking', 'cycling'].includes(user.activity);
+
   return `\n--- COACH MEMORY & HEALTH METRICS ---${ctx}\n${RESPECT_AND_TONE_RULES}\n--- END MEMORY & METRICS ---\n\nCRITICAL HUMAN COACHING RULES:
-- You are an expert personal trainer & nutritionist.
-- PROACTIVE PROFILE COMPLETION RULES:
+- You are an expert personal trainer & fitness coach.
+${isCardioUser ? `- CARDIO COACHING PRIORITY:
+  * You are primarily a cardio coach for ${user?.activity}. Focus on distance, pace, weekly sessions, and consistency.
+  * If the user asks about their progress: reference the cardio data above (sessions this week, pace trend, weekly goal).
+  * Track and celebrate pace improvements. If pace is improving, call it out!
+  * If they haven't hit their weekly session count yet, remind them how many more they need.
+  * If they've been consistently hitting goals for 2 weeks: suggest bumping up the distance target.
+  * Keep tone casual and friendly — like a running buddy who's also their coach.` : `- PROACTIVE PROFILE COMPLETION RULES:
   1. If user's height or weight is missing, ask for their height (cm) and weight (kg) so you can compute their BMI and daily calorie budget!
   2. If user's cuisine/region preference is missing, ask for their preferred cuisine (e.g. South Indian / Tamil Nadu, North Indian, etc.)!
   3. If user's food allergies are missing, ask if they have any food allergies (peanuts, dairy, gluten, or none).
@@ -141,7 +201,7 @@ function buildCoachContext(user) {
   * Whenever the user asks about ANY food item or dish (e.g., biryani, dosa, chicken, rice, pizza, eggs, etc.) or asks "how much biryani can I eat now?":
   * ALWAYS state the EXACT PORTION WEIGHT IN GRAMS or realistic servings (e.g. 1 plate / 250g Chicken Biryani).
   * ALWAYS state the exact Calories and Macros (Protein, Carbs, Fat) for that portion!
-  * ALWAYS tell them how much portion weight fits into their daily calorie target (${user?.target_calories || 2000} kcal/day)!
+  * ALWAYS tell them how much portion weight fits into their daily calorie target (${user?.target_calories || 2000} kcal/day)!`}
 - ALWAYS follow RESPECT & TONE RULES (neenga, unga, ungalukku, sollunga — ABSOLUTELY FORBIDDEN to use 'Dei', 'Dey', 'Da', 'Di', 'unoda', 'unakku', or 'nee').\n`;
 }
 
@@ -336,6 +396,17 @@ We need to collect these fields for the user's checklist:
 11. "height": Height in cm. (ONLY required if tier is 'pro_120' or 'pro_350'; set to null otherwise).
 12. "weight": Weight in kg. (ONLY required if tier is 'pro_120' or 'pro_350'; set to null otherwise).
 13. "target_muscle": Muscle group they want to improve (e.g. chest, legs, shoulders, full body). (ONLY required if tier is 'pro_120' or 'pro_350'; set to null otherwise).
+14. "fitness_app": Their fitness tracking app (ONLY for running/walking/cycling — set to null for gym). Ask: "Which fitness app do you use to track your runs/walks/rides? (Strava, Apple Fitness, Samsung Health, Garmin, or other — if none, Strava is free and great!)". MUST be one of: 'strava', 'apple_health', 'samsung_health', 'garmin', 'nike_run_club', 'google_fit', 'fitbit', 'other'.
+15. "weekly_goal_distance_km": Target distance PER SESSION in km for the PRIMARY activity (ONLY for running/walking/cycling — null for gym). Ask: "What's your per-session distance goal? Like '3km per run'? Be realistic — we can always push it up!" Extract as decimal (e.g. "3km" → 3.0).
+16. "weekly_plan": JSON array for the full multi-activity plan (ONLY for running/walking/cycling — null for gym). When a user commits to MULTIPLE activities (e.g. "I'll run 3 days and cycle 2 days"), populate this as an array. For SINGLE activity users, also populate it with one entry. Format:
+   [{"activity": "running", "days_per_week": 3, "goal_distance_km": 3.0}, {"activity": "cycling", "days_per_week": 2, "goal_distance_km": 10.0}]
+   - "activity" MUST be one of: 'running', 'walking', 'cycling'
+   - "days_per_week": integer 1-7 for that specific activity
+   - "goal_distance_km": decimal target per session for that activity
+   - Sum of all days_per_week values should equal the user's total "days_per_week" field
+   - Set "activity" field (item 3) to the primary/first activity in the plan
+   - Set "days_per_week" field (item 5) to the TOTAL across all activities
+   - When asking: "What activities are you committing to, and how many days each? E.g. 'running 3 days + cycling 2 days' or just 'running 4 days'"
 
 Here is the user's current profile:
 ${profileString}
@@ -380,12 +451,15 @@ Instructions:
     "allergy": string|null,
     "height": number|null,
     "weight": number|null,
-    "target_muscle": string|null
+    "target_muscle": string|null,
+    "fitness_app": "strava"|"apple_health"|"samsung_health"|"garmin"|"nike_run_club"|"google_fit"|"fitbit"|"other"|null,
+    "weekly_goal_distance_km": number|null,
+    "weekly_plan": array|null
   },
   "reply": "string (your conversational response reacting to their message and asking for the next missing detail)"
 }`;
 
-  const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.2 });
+  const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.2, maxTokens: 2000 });
 
   try {
     const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
@@ -894,6 +968,153 @@ INSTRUCTIONS:
   }
 }
 
+/**
+ * Parses a fitness app screenshot (Strava, Apple Health, Samsung Health, Garmin, etc.)
+ * and extracts the activity data for running, walking, or cycling verification.
+ */
+async function parseFitnessAppScreenshot({ imageBase64, mimeType, activityType, todayDate }) {
+  const prompt = `You are a fitness data extraction engine. The user is trying to check in their ${activityType} session by uploading a screenshot from their fitness tracking app.
+
+Today's date is: ${todayDate}
+
+Look at the attached screenshot carefully and extract the following data:
+
+IMPORTANT RULES:
+1. Only accept screenshots from legitimate fitness tracking apps: Strava, Apple Fitness / Apple Health, Samsung Health, Garmin Connect, Nike Run Club, Google Fit, Fitbit, or similar fitness trackers.
+2. Reject if it's NOT a fitness app screenshot (random photo, AI-generated, stock image, gym selfie, etc.)
+3. Reject if the activity type in the screenshot doesn't match "${activityType}" (e.g., cycling screenshot for a runner)
+4. Reject if the activity date shown is more than 1 day before today (${todayDate}) — old screenshots are not valid
+5. For walking: minimum 500m distance to count. For running: minimum 500m. For cycling: minimum 1km.
+
+Extract and return:
+- detected_app: which app is this screenshot from (strava/apple_health/samsung_health/garmin/nike_run_club/google_fit/fitbit/other)
+- activity_type: what activity is shown (running/walking/cycling/unknown)
+- distance_km: distance in km (convert from miles if needed, e.g. 1.86mi = 2.99km). Return as a decimal number.
+- duration_minutes: total time in minutes as a decimal (e.g. 32:15 = 32.25)
+- pace_min_per_km: pace in minutes per km as a decimal (e.g. "5'30"/km" = 5.5). For cycling, derive from speed if needed.
+- speed_kmh: speed in km/h (mainly for cycling)
+- calories: calories burned if shown, otherwise null
+- activity_date: the date of the activity shown in the screenshot as YYYY-MM-DD. If only day/time shown, infer date. If unclear, return null.
+- is_valid: true if this is a valid, real fitness app screenshot for ${activityType} from today or yesterday
+- reject_reason: if not valid, explain why in one short sentence. Otherwise null.
+
+Respond ONLY with strict JSON, no markdown fences:
+{
+  "detected_app": string,
+  "activity_type": string,
+  "distance_km": number|null,
+  "duration_minutes": number|null,
+  "pace_min_per_km": number|null,
+  "speed_kmh": number|null,
+  "calories": number|null,
+  "activity_date": string|null,
+  "is_valid": boolean,
+  "reject_reason": string|null
+}`;
+
+  const parts = [
+    { text: prompt },
+    { inline_data: { mime_type: mimeType || 'image/jpeg', data: imageBase64 } },
+  ];
+
+  const text = await callGemini({ parts, jsonMode: true, temperature: 0.1 });
+  try {
+    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    const parsed = JSON.parse(cleaned);
+    return {
+      detected_app: parsed.detected_app || 'unknown',
+      activity_type: parsed.activity_type || activityType,
+      distance_km: parsed.distance_km || null,
+      duration_minutes: parsed.duration_minutes || null,
+      pace_min_per_km: parsed.pace_min_per_km || null,
+      speed_kmh: parsed.speed_kmh || null,
+      calories: parsed.calories || null,
+      activity_date: parsed.activity_date || null,
+      is_valid: Boolean(parsed.is_valid),
+      reject_reason: parsed.reject_reason || null,
+    };
+  } catch (err) {
+    throw new GeminiError(`Could not parse fitness screenshot response: ${text}`);
+  }
+}
+
+/**
+ * Generates a casual, context-aware coach message after a cardio check-in.
+ * Handles single-activity and multi-activity plans (e.g. running + cycling).
+ */
+async function generateCardioCoachFeedback({
+  user,
+  detectedActivity,
+  todaySession,
+  weekSessions,
+  weeklyGoalSessions,
+  weeklyGoalDistanceKm,
+  recentPaces,
+  otherActivitiesProgress,
+  suggestGoalUpgrade,
+  language,
+}) {
+  const langName = LANGUAGE_NAMES[language] || 'English';
+  const activity = detectedActivity || user.activity || 'running';
+  const name = user.name || 'bro';
+
+  const weekDone = weekSessions.length;
+  const weekRemaining = Math.max(0, weeklyGoalSessions - weekDone);
+  const isForCycling = activity === 'cycling';
+
+  let paceContext = '';
+  if (recentPaces && recentPaces.length >= 2 && todaySession.pace_min_per_km) {
+    const avgRecentPace = recentPaces.slice(0, 3).reduce((a, b) => a + b, 0) / Math.min(recentPaces.length, 3);
+    const paceImprovement = avgRecentPace - todaySession.pace_min_per_km;
+    if (paceImprovement > 0.15) {
+      paceContext = `Pace improvement: average was ${avgRecentPace.toFixed(1)} min/km recently, today is ${todaySession.pace_min_per_km.toFixed(1)} min/km — ${paceImprovement.toFixed(1)} min/km faster!`;
+    } else if (paceImprovement < -0.15) {
+      paceContext = `Pace a bit slower today (${todaySession.pace_min_per_km.toFixed(1)} min/km) vs recent average (${avgRecentPace.toFixed(1)} min/km). Happens, no biggie.`;
+    } else {
+      paceContext = `Pace consistent at around ${todaySession.pace_min_per_km.toFixed(1)} min/km.`;
+    }
+  }
+
+  let otherActivitiesContext = '';
+  if (otherActivitiesProgress && otherActivitiesProgress.length > 0) {
+    otherActivitiesContext = '\nOther activities this week:\n' +
+      otherActivitiesProgress.map(a => `- ${a.activity}: ${a.done}/${a.goal} sessions done`).join('\n');
+  }
+
+  const prompt = `You are ShowUp, a casual, warm, no-BS personal fitness coach texting ${name} on WhatsApp. They just logged a ${activity} session.
+
+Their weekly ${activity} goal: ${weeklyGoalDistanceKm}km per session, ${weeklyGoalSessions} ${activity} sessions/week.
+
+Today's ${activity} session:
+- Distance: ${todaySession.distance_km ? todaySession.distance_km.toFixed(2) + 'km' : 'unknown'}
+- Duration: ${todaySession.duration_minutes ? Math.floor(todaySession.duration_minutes) + 'min' : 'unknown'}
+- ${isForCycling ? 'Speed/Pace' : 'Pace'}: ${todaySession.pace_min_per_km ? todaySession.pace_min_per_km.toFixed(1) + ' min/km' : 'unknown'}
+- Calories: ${todaySession.calories ? todaySession.calories + ' kcal' : 'unknown'}
+
+This week's ${activity} progress: ${weekDone}/${weeklyGoalSessions} sessions done. ${weekRemaining > 0 ? `${weekRemaining} more to go this week.` : '🎯 Weekly goal complete!'}
+
+${paceContext}
+${otherActivitiesContext}
+${suggestGoalUpgrade ? `IMPORTANT: They've consistently hit their ${weeklyGoalDistanceKm}km goal 2 weeks in a row. Suggest bumping the distance target (e.g. to ${(weeklyGoalDistanceKm + 0.5).toFixed(1)}km) — ask casually at the end.` : ''}
+
+Write a short WhatsApp message (max 85 words) as a casual best-friend coach:
+1. React specifically to today's ${activity} — distance, pace, calories if notable
+2. If distance < ${(weeklyGoalDistanceKm * 0.85).toFixed(1)}km (below 85% of goal): be encouraging but mention they were a bit short — "hey only Xkm today" style, not harsh
+3. If distance >= ${(weeklyGoalDistanceKm * 0.85).toFixed(1)}km: celebrate or acknowledge it well
+4. Show weekly progress ("X/${weeklyGoalSessions} ${activity} sessions this week, N more to go" or "crushed it!")
+5. If there are other activities in the plan, give them a quick status too (1 line max)
+6. Mention pace trend if notable
+7. Suggest goal upgrade casually if flagged
+
+STYLE: Like texting a close Indian friend/coach. "bro", "da", "nice one", "let's go", "come on", "ayyy". Short punchy sentences. Max 1-2 emojis. No hashtags. No lectures.
+Consistency > perfection is the vibe.
+
+Reply ONLY in ${langName}.`;
+
+  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.85 });
+  return text.trim();
+}
+
 module.exports = {
   GeminiError,
   acknowledgeAnswer,
@@ -914,4 +1135,6 @@ module.exports = {
   extractPersonalizationSignals,
   generateFollowUpNudge,
   answerPaymentAndTermsQuery,
+  parseFitnessAppScreenshot,
+  generateCardioCoachFeedback,
 };

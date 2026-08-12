@@ -33,6 +33,10 @@ const userColumnMigrations = [
   ['workout_acknowledged_date', 'ALTER TABLE users ADD COLUMN workout_acknowledged_date TEXT'],
   ['profile_json', "ALTER TABLE users ADD COLUMN profile_json TEXT DEFAULT '{}'"],
   ['cuisine_region', 'ALTER TABLE users ADD COLUMN cuisine_region TEXT'],
+  ['fitness_app', 'ALTER TABLE users ADD COLUMN fitness_app TEXT'],
+  ['weekly_goal_distance_km', 'ALTER TABLE users ADD COLUMN weekly_goal_distance_km REAL'],
+  ['last_goal_review_date', 'ALTER TABLE users ADD COLUMN last_goal_review_date TEXT'],
+  ['weekly_plan', "ALTER TABLE users ADD COLUMN weekly_plan TEXT"],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -42,6 +46,11 @@ const existingCheckinColumns = new Set(db.prepare('PRAGMA table_info(checkins)')
 const checkinColumnMigrations = [
   ['photo_hash', 'ALTER TABLE checkins ADD COLUMN photo_hash TEXT'],
   ['gesture', 'ALTER TABLE checkins ADD COLUMN gesture TEXT'],
+  ['distance_km', 'ALTER TABLE checkins ADD COLUMN distance_km REAL'],
+  ['duration_minutes', 'ALTER TABLE checkins ADD COLUMN duration_minutes REAL'],
+  ['pace_min_per_km', 'ALTER TABLE checkins ADD COLUMN pace_min_per_km REAL'],
+  ['activity_calories', 'ALTER TABLE checkins ADD COLUMN activity_calories INTEGER'],
+  ['activity_type', 'ALTER TABLE checkins ADD COLUMN activity_type TEXT'],
 ];
 for (const [column, sql] of checkinColumnMigrations) {
   if (!existingCheckinColumns.has(column)) db.exec(sql);
@@ -84,7 +93,7 @@ const USER_FIELDS = new Set([
   'streak', 'missed_count', 'last_prompted_date', 'last_weekly_summary_date', 'poster_path',
   'tier', 'height', 'weight', 'target_calories', 'target_muscle', 'allergy',
   'timetable', 'goal', 'water_reminders_sent', 'workout_reminded_date', 'workout_acknowledged_date',
-  'profile_json',
+  'profile_json', 'cuisine_region', 'fitness_app', 'weekly_goal_distance_km', 'last_goal_review_date', 'weekly_plan',
 ]);
 
 function updateUser(id, fields) {
@@ -103,10 +112,10 @@ function getAllUsers() {
   return db.prepare('SELECT * FROM users ORDER BY created_at DESC').all();
 }
 
-function createCheckin({ userId, date, description, photoRef, status, geminiReason, photoHash, gesture }) {
+function createCheckin({ userId, date, description, photoRef, status, geminiReason, photoHash, gesture, distanceKm, durationMinutes, paceMinPerKm, activityCalories, activityType }) {
   const info = db.prepare(
-    `INSERT INTO checkins (user_id, date, description, photo_ref, status, gemini_reason, photo_hash, gesture)
-     VALUES (@userId, @date, @description, @photoRef, @status, @geminiReason, @photoHash, @gesture)`
+    `INSERT INTO checkins (user_id, date, description, photo_ref, status, gemini_reason, photo_hash, gesture, distance_km, duration_minutes, pace_min_per_km, activity_calories, activity_type)
+     VALUES (@userId, @date, @description, @photoRef, @status, @geminiReason, @photoHash, @gesture, @distanceKm, @durationMinutes, @paceMinPerKm, @activityCalories, @activityType)`
   ).run({
     userId,
     date,
@@ -116,6 +125,11 @@ function createCheckin({ userId, date, description, photoRef, status, geminiReas
     geminiReason: geminiReason || null,
     photoHash: photoHash || null,
     gesture: gesture || null,
+    distanceKm: distanceKm || null,
+    durationMinutes: durationMinutes || null,
+    paceMinPerKm: paceMinPerKm || null,
+    activityCalories: activityCalories || null,
+    activityType: activityType || null,
   });
   return getCheckinById(info.lastInsertRowid);
 }
@@ -124,7 +138,7 @@ function getCheckinById(id) {
   return db.prepare('SELECT * FROM checkins WHERE id = ?').get(id);
 }
 
-const CHECKIN_FIELDS = new Set(['description', 'photo_ref', 'status', 'gemini_reason', 'photo_hash', 'gesture']);
+const CHECKIN_FIELDS = new Set(['description', 'photo_ref', 'status', 'gemini_reason', 'photo_hash', 'gesture', 'distance_km', 'duration_minutes', 'pace_min_per_km', 'activity_calories', 'activity_type']);
 
 function updateCheckin(id, fields) {
   const keys = Object.keys(fields).filter((k) => CHECKIN_FIELDS.has(k));
@@ -252,6 +266,30 @@ function getCheckinsForWeek(userId, startDate, endDate) {
   ).all(userId, startDate, endDate);
 }
 
+function getWeekCardioCheckins(userId, weekStart, weekEnd) {
+  return db.prepare(
+    "SELECT * FROM checkins WHERE user_id = ? AND date >= ? AND date <= ? AND status = 'accepted' AND distance_km IS NOT NULL ORDER BY date ASC"
+  ).all(userId, weekStart, weekEnd);
+}
+
+function getWeekCardioCheckinsByActivity(userId, weekStart, weekEnd, activityType) {
+  return db.prepare(
+    "SELECT * FROM checkins WHERE user_id = ? AND date >= ? AND date <= ? AND status = 'accepted' AND distance_km IS NOT NULL AND activity_type = ? ORDER BY date ASC"
+  ).all(userId, weekStart, weekEnd, activityType);
+}
+
+function getRecentCardioCheckins(userId, limit = 10) {
+  return db.prepare(
+    "SELECT * FROM checkins WHERE user_id = ? AND status = 'accepted' AND distance_km IS NOT NULL ORDER BY date DESC, id DESC LIMIT ?"
+  ).all(userId, limit);
+}
+
+function getRecentCardioCheckinsByActivity(userId, activityType, limit = 8) {
+  return db.prepare(
+    "SELECT * FROM checkins WHERE user_id = ? AND status = 'accepted' AND distance_km IS NOT NULL AND activity_type = ? ORDER BY date DESC, id DESC LIMIT ?"
+  ).all(userId, activityType, limit);
+}
+
 function getChatMessagesForWeek(userId, startDate, endDate) {
   return db.prepare(
     "SELECT role, text, created_at FROM chat_messages WHERE user_id = ? AND date(created_at) >= ? AND date(created_at) <= ? ORDER BY created_at ASC, id ASC"
@@ -288,4 +326,8 @@ module.exports = {
   getChatMessagesByDate,
   getCheckinsForWeek,
   getChatMessagesForWeek,
+  getWeekCardioCheckins,
+  getWeekCardioCheckinsByActivity,
+  getRecentCardioCheckins,
+  getRecentCardioCheckinsByActivity,
 };
