@@ -33,8 +33,8 @@ export interface UserProfile {
   weight?: number;
 }
 
-// Default to your PC's IP address on the local network so physical devices connect immediately
-export let BASE_URL = 'http://10.131.110.142:3000';
+// Permanent Production Backend URL on Render
+export let BASE_URL = 'https://showup-backend-unf8.onrender.com';
 
 export const setBaseUrl = (url: string) => {
   BASE_URL = url.replace(/\/+$/, '');
