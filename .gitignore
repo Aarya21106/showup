@@ -6,6 +6,9 @@ data/*.db-wal
 data/*.db-shm
 generated/
 npm-debug.log*
+*.log
 .DS_Store
-auth_info_baileys/
 .claude/
+firebase-service-account.json
+auth_info_baileys/
+scratch/

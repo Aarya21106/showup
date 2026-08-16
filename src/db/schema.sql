@@ -101,3 +101,16 @@ CREATE TABLE IF NOT EXISTS daily_summaries (
 
 CREATE INDEX IF NOT EXISTS idx_daily_summaries_user_date ON daily_summaries(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_daily_summaries_followup ON daily_summaries(follow_up_date, follow_up_resolved);
+
+CREATE TABLE IF NOT EXISTS outbox_messages (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id     INTEGER NOT NULL REFERENCES users(id),
+  phone       TEXT NOT NULL,
+  body        TEXT NOT NULL,
+  media_url   TEXT,
+  delivered   INTEGER NOT NULL DEFAULT 0,
+  created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_outbox_user_delivered ON outbox_messages(user_id, delivered);
+

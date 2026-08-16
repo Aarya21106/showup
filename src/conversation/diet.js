@@ -1,6 +1,6 @@
 const db = require('../db/db');
 const gemini = require('../services/gemini');
-const whatsapp = require('../services/whatsapp');
+const messaging = require('../services/messaging');
 const { todayStr } = require('../utils/date');
 const config = require('../config');
 
@@ -20,7 +20,7 @@ async function handleDietLog(user, text) {
   try {
     const parsed = await gemini.parseDietLog(text);
     if (!parsed.items || parsed.items.length === 0) {
-      await whatsapp.sendText(user.phone, "Hmm, I couldn't extract any food items from that. Try saying something like: 'I ate 2 eggs and 100g chicken breast'.");
+      await messaging.sendText(user.phone, "Hmm, I couldn't extract any food items from that. Try saying something like: 'I ate 2 eggs and 100g chicken breast'.");
       return;
     }
 
@@ -43,7 +43,7 @@ async function handleDietLog(user, text) {
       });
 
       const gramsStr = item.weight_g ? ` (${item.weight_g}g)` : '';
-      breakdownParts.push(`🍳 ${item.food_item}${gramsStr}: ${kcal} kcal`);
+      breakdownParts.push(`• ${item.food_item}${gramsStr}: ${kcal} kcal`);
     }
 
     // Fetch total logged today
@@ -51,26 +51,26 @@ async function handleDietLog(user, text) {
     const totalToday = logs.reduce((sum, log) => sum + log.calories, 0);
     const remaining = Math.max(0, targetCalories - totalToday);
 
-    const message = `✅ *Diet Logged!*\n` +
+    const message = `Nutrition Logged:\n` +
       `${breakdownParts.join('\n')}\n\n` +
-      `🔥 *Logged now:* +${loggedKcal} kcal\n` +
-      `📊 *Today's Total:* ${totalToday} / ${targetCalories} kcal\n` +
-      `🎯 *Remaining:* ${remaining} kcal`;
+      `• Logged now: +${loggedKcal} kcal\n` +
+      `• Today's Total: ${totalToday} / ${targetCalories} kcal\n` +
+      `• Remaining: ${remaining} kcal`;
 
-    await whatsapp.sendText(user.phone, message);
+    await messaging.sendText(user.phone, message);
   } catch (err) {
     console.error('Error logging diet:', err);
-    await whatsapp.sendText(user.phone, "Sorry, I had trouble parsing your food log. Can you try again?");
+    await messaging.sendText(user.phone, "Sorry, I had trouble parsing your food log. Can you try again?");
   }
 }
 
 async function handleDietQuery(user, text) {
   try {
     const reply = await gemini.getDietSuggestions(user, text);
-    await whatsapp.sendText(user.phone, reply);
+    await messaging.sendText(user.phone, reply);
   } catch (err) {
     console.error('Error getting diet suggestions:', err);
-    await whatsapp.sendText(user.phone, "Sorry, I had an issue generating your diet suggestions.");
+    await messaging.sendText(user.phone, "Sorry, I had an issue generating your diet suggestions.");
   }
 }
 

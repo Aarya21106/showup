@@ -1,6 +1,6 @@
 const states = require('./states');
 const db = require('../db/db');
-const whatsapp = require('../services/whatsapp');
+const messaging = require('../services/messaging');
 const messages = require('./messages');
 const onboarding = require('./onboarding');
 const checkin = require('./checkin');
@@ -158,7 +158,7 @@ async function handleIncomingMessage({ phone, body, media }) {
   }
 
   if (isNew) {
-    await whatsapp.sendText(phone, messages.question('en', 'name'));
+    await messaging.sendText(phone, messages.question('en', 'name'));
     return;
   }
 
@@ -178,12 +178,12 @@ async function handleIncomingMessage({ phone, body, media }) {
     
     // Recreate a clean user record and start onboarding Q1
     db.getOrCreateUser(phone);
-    await whatsapp.sendText(phone, messages.question('en', 'name'));
+    await messaging.sendText(phone, messages.question('en', 'name'));
     return;
   }
 
   if (user.state === states.COMPLETED) {
-    await whatsapp.sendText(phone, messages.t(user.language, 'waitForPrompt'));
+    await messaging.sendText(phone, messages.t(user.language, 'waitForPrompt'));
     return;
   }
 
@@ -199,7 +199,7 @@ async function handleIncomingMessage({ phone, body, media }) {
 
     if (cleanText.includes('change schedule') || cleanText.includes('update timetable') || cleanText.includes('edit schedule')) {
       db.updateUser(user.id, { state: states.AWAITING_TIMETABLE });
-      await whatsapp.sendText(phone, "No problem! Let's update your weekly schedule. What fitness goal or timetable changes do you want to make?");
+      await messaging.sendText(phone, "No problem! Let's update your weekly schedule. What fitness goal or timetable changes do you want to make?");
       return;
     }
 
@@ -207,7 +207,7 @@ async function handleIncomingMessage({ phone, body, media }) {
     if (user.workout_reminded_date === today && user.workout_acknowledged_date !== today) {
       db.updateUser(user.id, { workout_acknowledged_date: today });
       if (!hasImage && text.length < 20 && /^(going|ok|okay|sure|done|heading out|going now|on my way|yes|will do|ready)\b/i.test(text)) {
-        await whatsapp.sendText(phone, "That's what I want to hear! Let's crush it. Send me your workout proof (photo + text) when you're done!");
+        await messaging.sendText(phone, "That's what I want to hear! Let's crush it. Send me your workout proof (photo + text) when you're done!");
         return;
       }
     }
@@ -229,7 +229,7 @@ async function handleIncomingMessage({ phone, body, media }) {
             await diet.handleDietQuery(user, text);
           } else {
             const reply = await gemini.handleGeneralQuery(user, text);
-            await whatsapp.sendText(phone, reply);
+            await messaging.sendText(phone, reply);
           }
           return;
         }
@@ -244,13 +244,13 @@ async function handleIncomingMessage({ phone, body, media }) {
             await exercise.handleExerciseQuery(user, text);
           } else {
             const reply = await gemini.handleGeneralQuery(user, text);
-            await whatsapp.sendText(phone, reply);
+            await messaging.sendText(phone, reply);
           }
           return;
         }
         if (intent === 'GENERAL_QUERY' || !workoutToday) {
           const reply = await gemini.handleGeneralQuery(user, text);
-          await whatsapp.sendText(phone, reply);
+          await messaging.sendText(phone, reply);
           return;
         }
       } catch (err) {
@@ -263,7 +263,7 @@ async function handleIncomingMessage({ phone, body, media }) {
     } else {
       const gemini = require('../services/gemini');
       const reply = await gemini.handleGeneralQuery(user, text);
-      await whatsapp.sendText(phone, reply);
+      await messaging.sendText(phone, reply);
     }
     return;
   }

@@ -2,7 +2,6 @@
   "watch": ["src/"],
   "ext": "js,json",
   "ignore": [
-    "auth_info_baileys/**",
     "generated/**",
     "*.db",
     "*.db-journal",

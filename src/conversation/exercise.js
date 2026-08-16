@@ -1,6 +1,6 @@
 const db = require('../db/db');
 const gemini = require('../services/gemini');
-const whatsapp = require('../services/whatsapp');
+const messaging = require('../services/messaging');
 const { todayStr } = require('../utils/date');
 const config = require('../config');
 
@@ -12,7 +12,7 @@ async function handleBurnLog(user, text) {
     const kcal = parsed.calories_burned || 0;
 
     if (kcal <= 0) {
-      await whatsapp.sendText(user.phone, "I couldn't estimate any calories burned for that. Can you specify the duration or intensity?");
+      await messaging.sendText(user.phone, "I couldn't estimate any calories burned for that. Can you specify the duration or intensity?");
       return;
     }
 
@@ -33,16 +33,16 @@ async function handleBurnLog(user, text) {
     const targetCalories = user.target_calories || 2000;
     const netCalories = totalEaten - totalBurned;
 
-    const message = `🏃 *Activity Logged!*\n` +
-      `💪 Workout: *${parsed.activity_name}*\n` +
-      `🔥 Calories Burned: *-${kcal} kcal*\n\n` +
-      `📊 *Daily Balance:* Eaten (${totalEaten} kcal) - Burned (${totalBurned} kcal) = *${netCalories} net kcal*\n` +
-      `🎯 *Daily Budget:* ${targetCalories} kcal`;
+    const message = `Activity Logged:\n` +
+      `• Workout: ${parsed.activity_name}\n` +
+      `• Calories Burned: -${kcal} kcal\n\n` +
+      `• Daily Balance: Eaten (${totalEaten} kcal) - Burned (${totalBurned} kcal) = ${netCalories} net kcal\n` +
+      `• Target Budget: ${targetCalories} kcal`;
 
-    await whatsapp.sendText(user.phone, message);
+    await messaging.sendText(user.phone, message);
   } catch (err) {
     console.error('Error logging burned calories:', err);
-    await whatsapp.sendText(user.phone, "Sorry, I had an issue logging your workout calories.");
+    await messaging.sendText(user.phone, "Sorry, I had an issue logging your workout calories.");
   }
 }
 
@@ -62,10 +62,10 @@ async function handleExerciseQuery(user, text) {
 
   try {
     const reply = await gemini.getExerciseSuggestions(user, text, muscle);
-    await whatsapp.sendText(user.phone, reply);
+    await messaging.sendText(user.phone, reply);
   } catch (err) {
     console.error('Error getting exercise suggestions:', err);
-    await whatsapp.sendText(user.phone, "Sorry, I couldn't fetch workout suggestions right now.");
+    await messaging.sendText(user.phone, "Sorry, I couldn't fetch workout suggestions right now.");
   }
 }
 

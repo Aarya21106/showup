@@ -37,6 +37,14 @@ const userColumnMigrations = [
   ['weekly_goal_distance_km', 'ALTER TABLE users ADD COLUMN weekly_goal_distance_km REAL'],
   ['last_goal_review_date', 'ALTER TABLE users ADD COLUMN last_goal_review_date TEXT'],
   ['weekly_plan', "ALTER TABLE users ADD COLUMN weekly_plan TEXT"],
+  ['firebase_uid', 'ALTER TABLE users ADD COLUMN firebase_uid TEXT'],
+  ['experience_level', 'ALTER TABLE users ADD COLUMN experience_level TEXT'],
+  ['supplements', 'ALTER TABLE users ADD COLUMN supplements TEXT'],
+  ['diet_summary', 'ALTER TABLE users ADD COLUMN diet_summary TEXT'],
+  ['workout_location', "ALTER TABLE users ADD COLUMN workout_location TEXT DEFAULT 'gym'"],
+  ['home_equipment', "ALTER TABLE users ADD COLUMN home_equipment TEXT DEFAULT 'none'"],
+  ['height', 'ALTER TABLE users ADD COLUMN height REAL'],
+  ['weight', 'ALTER TABLE users ADD COLUMN weight REAL'],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -296,6 +304,28 @@ function getChatMessagesForWeek(userId, startDate, endDate) {
   ).all(userId, startDate, endDate);
 }
 
+// ── Outbox message queue (for native app) ──
+
+function queueOutboxMessage({ userId, phone, body, mediaUrl }) {
+  db.prepare(
+    'INSERT INTO outbox_messages (user_id, phone, body, media_url) VALUES (?, ?, ?, ?)'
+  ).run(userId, phone, body, mediaUrl || null);
+}
+
+function getPendingMessages(userId) {
+  return db.prepare(
+    'SELECT id, body, media_url, created_at FROM outbox_messages WHERE user_id = ? AND delivered = 0 ORDER BY created_at ASC, id ASC'
+  ).all(userId);
+}
+
+function markMessagesDelivered(userId, messageIds) {
+  if (!messageIds || messageIds.length === 0) return;
+  const placeholders = messageIds.map(() => '?').join(',');
+  db.prepare(
+    `UPDATE outbox_messages SET delivered = 1 WHERE user_id = ? AND id IN (${placeholders})`
+  ).run(userId, ...messageIds);
+}
+
 module.exports = {
   db,
   getUserByPhone,
@@ -330,4 +360,7 @@ module.exports = {
   getWeekCardioCheckinsByActivity,
   getRecentCardioCheckins,
   getRecentCardioCheckinsByActivity,
+  queueOutboxMessage,
+  getPendingMessages,
+  markMessagesDelivered,
 };

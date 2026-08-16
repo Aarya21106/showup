@@ -1,11 +1,14 @@
 require('dotenv').config({ override: true });
+const path = require('path');
 
 const config = {
   port: parseInt(process.env.PORT || '3000', 10),
   publicBaseUrl: (process.env.PUBLIC_BASE_URL || '').replace(/\/+$/, ''),
 
-  whatsapp: {
-    from: process.env.WHATSAPP_FROM || 'whatsapp:+919500665712',
+  firebase: {
+    serviceAccountPath: process.env.FIREBASE_SERVICE_ACCOUNT_PATH
+      ? path.resolve(process.env.FIREBASE_SERVICE_ACCOUNT_PATH)
+      : '',
   },
 
   gemini: {
@@ -48,13 +51,9 @@ const isPlaceholder = (val) => {
   );
 };
 
-config.whatsappConfigured = Boolean(
-  config.whatsapp.from
-);
 config.geminiConfigured = Boolean(
   config.gemini.apiKey &&
   !isPlaceholder(config.gemini.apiKey)
 );
 
 module.exports = config;
-

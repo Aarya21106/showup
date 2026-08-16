@@ -2,7 +2,7 @@ const states = require('./states');
 const messages = require('./messages');
 const db = require('../db/db');
 const gemini = require('../services/gemini');
-const whatsapp = require('../services/whatsapp');
+const messaging = require('../services/messaging');
 const poster = require('../services/poster');
 const config = require('../config');
 const { todayStr } = require('../utils/date');
@@ -35,7 +35,7 @@ async function resolveImage(media) {
       const mimeType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
       return { base64, mimeType };
     }
-    return whatsapp.fetchInboundMedia(media.mediaUrl);
+    return messaging.fetchInboundMedia(media.mediaUrl);
   }
   return null;
 }
@@ -57,17 +57,17 @@ async function finalizeAccepted(user, checkinId, reason) {
     const { publicUrl } = await poster.renderFinalPoster({
       userId: user.id, name: user.name, activity: user.activity, completedDays, payout,
     });
-    await whatsapp.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
+    await messaging.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
     const msg = missed === 0
       ? messages.t(user.language, 'finalComplete', payout)
       : messages.t(user.language, 'finalPartial', completedDays, payout);
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
     return;
   }
 
   db.updateUser(user.id, { streak, pending_checkin_id: null, state: states.ACTIVE, current_gesture: null });
   const daysLeft = Math.max(config.pledgeDays - user.day_count, 0);
-  await whatsapp.sendText(user.phone, messages.t(user.language, 'checkinAccepted', streak, daysLeft));
+  await messaging.sendText(user.phone, messages.t(user.language, 'checkinAccepted', streak, daysLeft));
 }
 
 const GESTURES = ['thumbs-up', 'peace-sign', 'three-fingers', 'fist', 'ok-sign'];
@@ -154,7 +154,7 @@ async function handleCardioCheckin(user, body, media) {
   const hasImage = media && (media.mediaUrl || media.testBase64);
 
   if (!hasImage) {
-    await whatsapp.sendText(user.phone, cardioNoScreenshotMsg(user.language, user));
+    await messaging.sendText(user.phone, cardioNoScreenshotMsg(user.language, user));
     return;
   }
 
@@ -162,7 +162,7 @@ async function handleCardioCheckin(user, body, media) {
   try {
     image = await resolveImage(media);
   } catch (err) {
-    await whatsapp.sendText(user.phone, cardioNoScreenshotMsg(user.language, user));
+    await messaging.sendText(user.phone, cardioNoScreenshotMsg(user.language, user));
     return;
   }
 
@@ -174,7 +174,7 @@ async function handleCardioCheckin(user, body, media) {
       : user.language === 'hl'
       ? 'Bhai yeh screenshot pehle bhi bheja hai! 😅 Aaj ki nayi activity ka screenshot bhejo!'
       : "Looks like you've already submitted this screenshot! 😅 Send today's fresh activity screenshot to check in.";
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
     return;
   }
 
@@ -192,7 +192,7 @@ async function handleCardioCheckin(user, body, media) {
     });
   } catch (err) {
     console.error('parseFitnessAppScreenshot failed:', err);
-    await whatsapp.sendText(user.phone, verifyTroubleMessage(user.language));
+    await messaging.sendText(user.phone, verifyTroubleMessage(user.language));
     return;
   }
 
@@ -205,7 +205,7 @@ async function handleCardioCheckin(user, body, media) {
       : user.language === 'hl'
       ? `Yaar, yeh valid nahi laga 🤔 ${parsed.reject_reason ? `(${parsed.reject_reason})` : ''} — aaj ke ${validActivities} ka proper ${appDisplayName(user.fitness_app)} screenshot bhejo!`
       : `Hmm, that doesn't look right 🤔 ${parsed.reject_reason ? `(${parsed.reject_reason}) ` : ''}— send your actual ${validActivities} screenshot from ${appDisplayName(user.fitness_app)} for today!`;
-    await whatsapp.sendText(user.phone, rejectMsg);
+    await messaging.sendText(user.phone, rejectMsg);
     return;
   }
 
@@ -221,7 +221,7 @@ async function handleCardioCheckin(user, body, media) {
       : user.language === 'hl'
       ? `Bhai yeh ${detectedActivity} ka screenshot dikh raha hai, par aapke plan mein ${planned} hai. Sahi activity ka screenshot bhejo!`
       : `That looks like a ${detectedActivity} session, but your plan has ${planned}. Send the right activity screenshot, or let me know if you want to add ${detectedActivity} to your plan!`;
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
     return;
   }
 
@@ -315,7 +315,7 @@ async function handleCardioCheckin(user, body, media) {
     coachMsg = messages.t(user.language, 'checkinAccepted', streak, Math.max(config.pledgeDays - user.day_count, 0));
   }
 
-  await whatsapp.sendText(user.phone, coachMsg);
+  await messaging.sendText(user.phone, coachMsg);
 
   // If program ended
   if (user.day_count >= config.pledgeDays) {
@@ -326,11 +326,11 @@ async function handleCardioCheckin(user, body, media) {
     const { publicUrl } = await poster.renderFinalPoster({
       userId: user.id, name: user.name, activity: user.activity, completedDays, payout,
     });
-    await whatsapp.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
+    await messaging.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
     const msg = user.missed_count === 0
       ? messages.t(user.language, 'finalComplete', payout)
       : messages.t(user.language, 'finalPartial', completedDays, payout);
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
   }
 }
 
@@ -345,14 +345,14 @@ async function handleActiveCheckin(user, body, media) {
     const gesture = getRandomGesture();
     db.updateUser(user.id, { current_gesture: gesture });
     const gestureText = messages.t(user.language, `gesture_${gesture}`);
-    await whatsapp.sendText(user.phone, messages.t(user.language, 'needGesturePhoto', gestureText, user.activity));
+    await messaging.sendText(user.phone, messages.t(user.language, 'needGesturePhoto', gestureText, user.activity));
     return;
   }
 
   const gestureText = messages.t(user.language, `gesture_${user.current_gesture}`);
 
   if (!media.mediaUrl && !media.testBase64) {
-    await whatsapp.sendText(user.phone, messages.t(user.language, 'needPhoto', gestureText, user.activity));
+    await messaging.sendText(user.phone, messages.t(user.language, 'needPhoto', gestureText, user.activity));
     return;
   }
 
@@ -360,7 +360,7 @@ async function handleActiveCheckin(user, body, media) {
   try {
     image = await resolveImage(media);
   } catch (err) {
-    await whatsapp.sendText(user.phone, messages.t(user.language, 'needPhoto', gestureText, user.activity));
+    await messaging.sendText(user.phone, messages.t(user.language, 'needPhoto', gestureText, user.activity));
     return;
   }
 
@@ -377,7 +377,7 @@ async function handleActiveCheckin(user, body, media) {
       : user.language === 'hi'
       ? 'आप पहले से इस्तेमाल की गई फोटो दोबारा भेज रहे हैं! कृपया आज की कसरत की नई फोटो भेजें।'
       : "It looks like you've reused a photo from a previous workout! Please upload a fresh photo of today's session to check in.";
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
     return;
   }
 
@@ -439,7 +439,7 @@ async function handleActiveCheckin(user, body, media) {
     });
   } catch (err) {
     console.error('verifyCheckin failed:', err);
-    await whatsapp.sendText(user.phone, verifyTroubleMessage(user.language));
+    await messaging.sendText(user.phone, verifyTroubleMessage(user.language));
     return;
   }
 
@@ -448,7 +448,7 @@ async function handleActiveCheckin(user, body, media) {
   } else {
     db.updateCheckin(checkin.id, { gemini_reason: result.reason });
     db.updateUser(user.id, { state: states.AWAITING_CHECKIN_FOLLOWUP, pending_checkin_id: checkin.id });
-    await whatsapp.sendText(user.phone, result.followupQuestion || genericFollowupQuestion(user.language));
+    await messaging.sendText(user.phone, result.followupQuestion || genericFollowupQuestion(user.language));
   }
 }
 
@@ -456,7 +456,7 @@ async function handleFollowup(user, body, media) {
   const pending = db.getCheckinById(user.pending_checkin_id);
   if (!pending) {
     db.updateUser(user.id, { state: states.ACTIVE, pending_checkin_id: null });
-    await whatsapp.sendText(user.phone, messages.t(user.language, 'waitForPrompt'));
+    await messaging.sendText(user.phone, messages.t(user.language, 'waitForPrompt'));
     return;
   }
 
@@ -469,7 +469,7 @@ async function handleFollowup(user, body, media) {
         photoHash = crypto.createHash('md5').update(image.base64).digest('hex');
       }
     } else if (pending.photo_ref && pending.photo_ref !== 'test-image') {
-      image = await whatsapp.fetchInboundMedia(pending.photo_ref);
+      image = await messaging.fetchInboundMedia(pending.photo_ref);
       photoHash = pending.photo_hash;
     }
   } catch (err) {
@@ -483,7 +483,7 @@ async function handleFollowup(user, body, media) {
       : user.language === 'hi'
       ? 'आप पहले से इस्तेमाल की गई फोटो दोबारा भेज रहे हैं! कृपया आज की कसरत की नई फोटो भेजें।'
       : "It looks like you've reused a photo from a previous workout! Please upload a fresh photo of today's session to check in.";
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
     return;
   }
 
@@ -499,7 +499,7 @@ async function handleFollowup(user, body, media) {
     });
   } catch (err) {
     console.error('evaluateFollowup failed:', err);
-    await whatsapp.sendText(user.phone, verifyTroubleMessage(user.language));
+    await messaging.sendText(user.phone, verifyTroubleMessage(user.language));
     return;
   }
 
@@ -514,7 +514,7 @@ async function handleFollowup(user, body, media) {
     db.updateUser(user.id, {
       state: states.ACTIVE, pending_checkin_id: null, streak: 0, missed_count: user.missed_count + 1, current_gesture: null,
     });
-    await whatsapp.sendText(user.phone, messages.t(user.language, 'checkinFailedFinal', result.reason));
+    await messaging.sendText(user.phone, messages.t(user.language, 'checkinFailedFinal', result.reason));
   }
 }
 

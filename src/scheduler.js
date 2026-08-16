@@ -3,7 +3,7 @@ const config = require('./config');
 const db = require('./db/db');
 const states = require('./conversation/states');
 const messages = require('./conversation/messages');
-const whatsapp = require('./services/whatsapp');
+const messaging = require('./services/messaging');
 const poster = require('./services/poster');
 const { todayStr, nowHHMM, addDaysStr } = require('./utils/date');
 
@@ -96,7 +96,7 @@ async function sweepAndPrompt(user, today, yesterday) {
   const pendingCheckinId = clearedPending ? null : user.pending_checkin_id;
 
   if (missedIncrement) {
-    await whatsapp.sendText(user.phone, messages.t(user.language, 'missedYesterday'));
+    await messaging.sendText(user.phone, messages.t(user.language, 'missedYesterday'));
   }
 
   if (dayCount > config.pledgeDays) {
@@ -113,11 +113,11 @@ async function sweepAndPrompt(user, today, yesterday) {
     const { publicUrl } = await poster.renderFinalPoster({
       userId: user.id, name: user.name, activity: user.activity, completedDays, payout,
     });
-    await whatsapp.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
+    await messaging.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
     const msg = missed === 0
       ? messages.t(user.language, 'finalComplete', payout)
       : messages.t(user.language, 'finalPartial', completedDays, payout);
-    await whatsapp.sendText(user.phone, msg);
+    await messaging.sendText(user.phone, msg);
     return;
   }
 
@@ -141,7 +141,7 @@ async function sweepAndPrompt(user, today, yesterday) {
       const gestureText = messages.t(user.language, `gesture_${gesture}`);
       reminderText = messages.t(user.language, 'dailyPrompt', user.activity, gestureText);
     }
-    await whatsapp.sendText(user.phone, reminderText);
+    await messaging.sendText(user.phone, reminderText);
   } else {
     db.updateUser(user.id, {
       streak, missed_count: missed, day_count: dayCount, last_prompted_date: today,
@@ -149,7 +149,7 @@ async function sweepAndPrompt(user, today, yesterday) {
       workout_reminded_date: null, workout_acknowledged_date: null,
     });
     const restMsg = `Today is a Rest Day in your schedule. Recover well! Drink plenty of water and eat clean. Day ${dayCount}/${config.pledgeDays}.`;
-    await whatsapp.sendText(user.phone, restMsg);
+    await messaging.sendText(user.phone, restMsg);
   }
 }
 
@@ -175,10 +175,10 @@ function tick() {
         if (!hasCheckedIn) {
           if (user.workout_acknowledged_date !== today) {
             const msg = `Hey ${user.name}! You missed your workout reminder for ${focusToday} at ${user.checkin_time} and didn't reply. Are you lacing up or slipping? Get moving! 👊`;
-            whatsapp.sendText(user.phone, msg).catch((err) => console.error(err));
+            messaging.sendText(user.phone, msg).catch((err) => console.error(err));
           } else {
             const msg = `Hey ${user.name}! You mentioned you were going for ${focusToday}, but I haven't received your check-in proof yet. Send your photo + text proof now to log it!`;
-            whatsapp.sendText(user.phone, msg).catch((err) => console.error(err));
+            messaging.sendText(user.phone, msg).catch((err) => console.error(err));
           }
         }
       }
@@ -190,7 +190,7 @@ function tick() {
         const hasCheckedIn = checkinToday && checkinToday.status !== 'missed' && checkinToday.status !== 'failed';
         if (!hasCheckedIn) {
           const gestureText = messages.t(user.language, `gesture_${user.current_gesture}`);
-          whatsapp.sendText(user.phone, messages.t(user.language, 'reminder', gestureText, user.activity)).catch((err) => {
+          messaging.sendText(user.phone, messages.t(user.language, 'reminder', gestureText, user.activity)).catch((err) => {
             console.error(`Scheduler error (reminder nudge) for user ${user.id}:`, err.message);
           });
         }
@@ -207,7 +207,7 @@ function tick() {
 
         if (!sentHours.includes(hourOnly)) {
           const msg = `💧 *ShowUp Hydration Alert!* Time to drink a glass of water, ${user.name}. Keep your performance high and stay on track!`;
-          whatsapp.sendText(user.phone, msg).catch((err) => {
+          messaging.sendText(user.phone, msg).catch((err) => {
             console.error(`Scheduler error (water reminder) for user ${user.id}:`, err.message);
           });
           const newSentHours = sentHours.concat(hourOnly).join(',');
@@ -232,7 +232,7 @@ async function sendWeeklySummaries() {
       const msg = missed === 0
         ? messages.t(user.language, 'weeklyOnTrack', user.streak, daysLeft, payout)
         : messages.t(user.language, 'weeklySlipped', missed, payout);
-      await whatsapp.sendText(user.phone, msg);
+      await messaging.sendText(user.phone, msg);
     } catch (err) {
       console.error(`Scheduler error (weekly summary) for user ${user.id}:`, err.message);
     }
@@ -295,7 +295,7 @@ async function checkFollowUpNudges() {
       const nudge = await gemini.generateFollowUpNudge(user, followUp.summary, profileJson);
 
       if (nudge) {
-        await whatsapp.sendText(user.phone, nudge);
+        await messaging.sendText(user.phone, nudge);
         console.log(`[Memory] Sent follow-up nudge to user ${user.id}: "${nudge}"`);
       }
 
