@@ -47,13 +47,17 @@ async function handleBurnLog(user, text) {
 }
 
 async function handleExerciseQuery(user, text) {
-  // Extract muscle group from query (or fallback to target_muscle)
+  // Extract muscle group / split from query (or fallback to target_muscle)
   let muscle = user.target_muscle || 'full body';
   
-  // Use Gemini to detect if they mentioned a specific muscle in their message
   const words = text.toLowerCase();
-  const muscleGroups = ['chest', 'back', 'legs', 'biceps', 'triceps', 'shoulders', 'abs', 'core', 'quads', 'hamstrings', 'glutes'];
-  for (const m of muscleGroups) {
+  const splitsAndMuscles = [
+    'chest and triceps', 'chest + triceps', 'back and biceps', 'back + biceps',
+    'shoulders and arms', 'shoulders + arms', 'upper body', 'lower body',
+    'push', 'pull', 'legs', 'chest', 'back', 'biceps', 'triceps',
+    'shoulders', 'arms', 'abs', 'core', 'quads', 'hamstrings', 'glutes', 'calves',
+  ];
+  for (const m of splitsAndMuscles) {
     if (words.includes(m)) {
       muscle = m;
       break;

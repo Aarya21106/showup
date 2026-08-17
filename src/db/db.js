@@ -43,8 +43,7 @@ const userColumnMigrations = [
   ['diet_summary', 'ALTER TABLE users ADD COLUMN diet_summary TEXT'],
   ['workout_location', "ALTER TABLE users ADD COLUMN workout_location TEXT DEFAULT 'gym'"],
   ['home_equipment', "ALTER TABLE users ADD COLUMN home_equipment TEXT DEFAULT 'none'"],
-  ['height', 'ALTER TABLE users ADD COLUMN height REAL'],
-  ['weight', 'ALTER TABLE users ADD COLUMN weight REAL'],
+  ['reminders_sent_log', "ALTER TABLE users ADD COLUMN reminders_sent_log TEXT DEFAULT '{}'"],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -102,6 +101,8 @@ const USER_FIELDS = new Set([
   'tier', 'height', 'weight', 'target_calories', 'target_muscle', 'allergy',
   'timetable', 'goal', 'water_reminders_sent', 'workout_reminded_date', 'workout_acknowledged_date',
   'profile_json', 'cuisine_region', 'fitness_app', 'weekly_goal_distance_km', 'last_goal_review_date', 'weekly_plan',
+  'firebase_uid', 'experience_level', 'supplements', 'diet_summary', 'workout_location', 'home_equipment',
+  'reminders_sent_log',
 ]);
 
 function updateUser(id, fields) {

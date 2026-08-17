@@ -7,6 +7,7 @@ import json
 import pandas as pd
 from datetime import datetime
 import html as html_mod
+import re
 
 # ─── Page Config ───
 st.set_page_config(
@@ -19,6 +20,17 @@ st.set_page_config(
 # ─── Constants ───
 DB_PATH = os.path.join(os.getcwd(), "data", "showup.db")
 os.makedirs("generated", exist_ok=True)
+
+def format_wa_text(text):
+    if not text:
+        return ""
+    # 1. Escape HTML
+    escaped = html_mod.escape(text)
+    # 2. Bold: *text* -> <b>text</b>
+    escaped = re.sub(r'\*([^*]+)\*', r'<b>\1</b>', escaped)
+    # 3. Replace single/double newlines with clean <br>
+    escaped = escaped.replace('\n', '<br>')
+    return escaped
 
 # ─── WhatsApp-Clone CSS ───
 st.markdown("""
@@ -397,6 +409,8 @@ def run_cli(action, phone, message="", media_path=""):
         cmd.append(message)
         if media_path:
             cmd.append(media_path)
+    elif action == "reminder":
+        cmd.append(message)
     try:
         result = subprocess.run(cmd, capture_output=True, text=True, check=True, timeout=60)
         return True, result.stdout
@@ -407,7 +421,7 @@ def run_cli(action, phone, message="", media_path=""):
 
 
 # ═══════════════════════════════════════════
-#  SIDEBAR — USER SELECT + DEBUG MODE
+#  SIDEBAR — USER SELECT + REMINDERS + DEBUG
 # ═══════════════════════════════════════════
 
 all_users = fetch_all_users()
@@ -451,6 +465,88 @@ with st.sidebar:
                     st.rerun()
                 else:
                     st.error(out)
+
+        # ── Automated Reminders Control Panel ──
+        st.markdown("---")
+        st.markdown("### 🔔 Automated Reminders")
+        with st.expander("⚡ Trigger Smart Reminders", expanded=True):
+            r_col1, r_col2 = st.columns(2)
+            with r_col1:
+                if st.button("🏋️ Workout", use_container_width=True, help="Trigger scheduled workout / rest reminder"):
+                    ok, out = run_cli("reminder", selected_phone, "workout")
+                    if ok:
+                        st.success("Workout reminder sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+
+                if st.button("💧 Hydration", use_container_width=True, help="Trigger 3-4L water alert"):
+                    ok, out = run_cli("reminder", selected_phone, "hydration")
+                    if ok:
+                        st.success("Hydration alert sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+
+                if st.button("🥣 Breakfast", use_container_width=True, help="Trigger breakfast protein reminder"):
+                    ok, out = run_cli("reminder", selected_phone, "breakfast")
+                    if ok:
+                        st.success("Breakfast reminder sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+
+            with r_col2:
+                if st.button("🥗 Lunch", use_container_width=True, help="Trigger lunch nutrition reminder"):
+                    ok, out = run_cli("reminder", selected_phone, "lunch")
+                    if ok:
+                        st.success("Lunch reminder sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+
+                if st.button("🍲 Dinner", use_container_width=True, help="Trigger dinner calorie check"):
+                    ok, out = run_cli("reminder", selected_phone, "dinner")
+                    if ok:
+                        st.success("Dinner reminder sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+
+                if st.button("🛌 Sleep/Rest", use_container_width=True, help="Trigger 7-8hr nightly recovery check"):
+                    ok, out = run_cli("reminder", selected_phone, "sleep")
+                    if ok:
+                        st.success("Sleep reminder sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+
+            st.markdown("<div style='height: 4px'></div>", unsafe_allow_html=True)
+            n_col1, n_col2 = st.columns(2)
+            with n_col1:
+                if st.button("⚠️ Follow-up Nudge", use_container_width=True, help="Trigger missed workout check-in nudge"):
+                    ok, out = run_cli("reminder", selected_phone, "nudge")
+                    if ok:
+                        st.success("Nudge sent!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
+            with n_col2:
+                if st.button("⏰ Scheduler Tick", use_container_width=True, help="Execute minute-cron scheduler tick for all users"):
+                    ok, out = run_cli("tick", selected_phone)
+                    if ok:
+                        st.success("Scheduler ticked!")
+                        time.sleep(0.4)
+                        st.rerun()
+                    else:
+                        st.error(out)
 
     st.markdown("---")
 
@@ -607,9 +703,16 @@ if selected_phone:
         margin: 8px 0; font-weight: 500; letter-spacing: 0.3px;
     }
     .wa-msg {
-        max-width: 82%; padding: 7px 10px 4px 10px; border-radius: 10px;
-        font-size: 0.88rem; line-height: 1.45; word-wrap: break-word;
+        max-width: 84%; padding: 8px 12px 6px 12px; border-radius: 12px;
+        font-size: 0.88rem; line-height: 1.5; word-wrap: break-word;
         position: relative; animation: fadeSlideIn 0.25s ease-out;
+        letter-spacing: 0.1px;
+    }
+    .wa-msg b, .wa-msg strong {
+        font-weight: 700; color: #53bdeb;
+    }
+    .wa-msg-user b, .wa-msg-user strong {
+        font-weight: 700; color: #ffffff;
     }
     @keyframes fadeSlideIn {
         from { opacity: 0; transform: translateY(8px); }
@@ -625,7 +728,7 @@ if selected_phone:
     }
     .wa-msg-time {
         font-size: 0.65rem; color: rgba(134,150,160,0.85); text-align: right;
-        margin-top: 3px; display: flex; align-items: center; justify-content: flex-end; gap: 4px;
+        margin-top: 4px; display: flex; align-items: center; justify-content: flex-end; gap: 4px;
     }
     .wa-msg-user .wa-msg-time::after {
         content: '✓✓'; color: #53bdeb; font-size: 0.7rem; font-weight: 700;
@@ -680,7 +783,7 @@ if selected_phone:
                 last_date = msg_date
 
             role_class = "wa-msg-user" if msg['role'] == 'user' else "wa-msg-bot"
-            text = html_mod.escape(msg['text']).replace('\n', '<br>')
+            text = format_wa_text(msg['text'])
 
             phone_html += f"""
             <div class="wa-msg {role_class}">

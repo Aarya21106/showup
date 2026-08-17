@@ -39,6 +39,36 @@ async function main() {
     process.exit(0);
   }
 
+  if (action === 'reminder') {
+    const reminderType = args[2] || 'workout';
+    const user = db.getUserByPhone(phone);
+    if (!user) {
+      console.error('Error: User not found for phone', phone);
+      process.exit(1);
+    }
+    const scheduler = require('../src/scheduler');
+    try {
+      await scheduler.triggerUserReminder(user, reminderType);
+      console.log(`REMINDER_SUCCESS_${reminderType.toUpperCase()}`);
+    } catch (err) {
+      console.error('Error triggering reminder:', err);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
+  if (action === 'tick') {
+    const scheduler = require('../src/scheduler');
+    try {
+      scheduler.tick();
+      console.log('TICK_SUCCESS');
+    } catch (err) {
+      console.error('Error running scheduler tick:', err);
+      process.exit(1);
+    }
+    process.exit(0);
+  }
+
   if (action === 'send') {
     const body = args[2] || '';
     const mediaPath = args[3] || '';

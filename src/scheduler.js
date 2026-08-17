@@ -153,12 +153,92 @@ async function sweepAndPrompt(user, today, yesterday) {
   }
 }
 
+async function triggerUserReminder(user, reminderType = 'workout') {
+  const gemini = require('./services/gemini');
+  const today = todayStr(config.timezone);
+  const todayDayName = getDayName(today, config.timezone);
+  const focusToday = getTodayWorkoutFocus(user, todayDayName);
+
+  if (reminderType === 'workout') {
+    if (focusToday) {
+      let gesture = user.current_gesture;
+      if (!gesture) {
+        gesture = getRandomGesture();
+        db.updateUser(user.id, { current_gesture: gesture, workout_reminded_date: today });
+        user.current_gesture = gesture;
+        user.workout_reminded_date = today;
+      }
+      let reminderText;
+      try {
+        reminderText = await gemini.generateWorkoutReminder(user, focusToday);
+      } catch (err) {
+        const gestureText = messages.t(user.language, `gesture_${gesture}`);
+        reminderText = messages.t(user.language, 'dailyPrompt', user.activity, gestureText);
+      }
+      await messaging.sendText(user.phone, reminderText);
+    } else {
+      const restMsg = `Today is a Rest Day in your schedule. Recover well! Rest is when your muscles rebuild and grow. Stay hydrated and eat clean. Day ${user.day_count}/${config.pledgeDays}.`;
+      await messaging.sendText(user.phone, restMsg);
+    }
+    return;
+  }
+
+  if (reminderType === 'nudge') {
+    const focus = focusToday || user.target_muscle || 'today\'s session';
+    const msg = `Hey ${user.name}! Just checking in on your ${focus} workout. Have you laced up or are you slipping? Send your photo proof to lock in your check-in!`;
+    await messaging.sendText(user.phone, msg);
+    return;
+  }
+
+  if (reminderType === 'hydration' || reminderType === 'water') {
+    let msg;
+    try {
+      msg = await gemini.generateHydrationReminder(user);
+    } catch (e) {
+      msg = `Hydration check, ${user.name}! Drink a large glass of water now. Aim for 3 to 4 liters today to keep muscle recovery and energy high.`;
+    }
+    await messaging.sendText(user.phone, msg);
+    return;
+  }
+
+  if (reminderType.startsWith('meal') || reminderType === 'breakfast' || reminderType === 'lunch' || reminderType === 'dinner') {
+    const mealName = reminderType.includes('breakfast') ? 'breakfast' : reminderType.includes('dinner') ? 'dinner' : 'lunch';
+    let msg;
+    try {
+      msg = await gemini.generateMealReminder(user, mealName);
+    } catch (e) {
+      msg = `Meal check, ${user.name}! Ensure your ${mealName} has enough protein. Reply with what you ate to log your calories!`;
+    }
+    await messaging.sendText(user.phone, msg);
+    return;
+  }
+
+  if (reminderType === 'sleep' || reminderType === 'recovery') {
+    let msg;
+    try {
+      msg = await gemini.generateSleepRecoveryReminder(user);
+    } catch (e) {
+      msg = `Night check, ${user.name}! 7-8 hours of quality sleep tonight is when your muscles repair and rebuild. Wind down and sleep well!`;
+    }
+    await messaging.sendText(user.phone, msg);
+    return;
+  }
+
+  if (reminderType === 'rest') {
+    const restMsg = `Today is a Rest Day in your schedule. Rest and recovery is essential for muscle hypertrophy and joint health. Hydrate well and relax!`;
+    await messaging.sendText(user.phone, restMsg);
+    return;
+  }
+}
+
 function tick() {
   const currentTime = nowHHMM(config.timezone);
   const today = todayStr(config.timezone);
   const yesterday = addDaysStr(today, -1);
+  const gemini = require('./services/gemini');
 
   for (const user of db.getActiveUsers()) {
+    // 1. Daily scheduled workout or rest prompt
     if (user.checkin_time === currentTime && user.last_prompted_date !== today) {
       sweepAndPrompt(user, today, yesterday).catch((err) => {
         console.error(`Scheduler error (daily prompt) for user ${user.id}:`, err.message);
@@ -168,22 +248,24 @@ function tick() {
     const todayDayName = getDayName(today, config.timezone);
     const focusToday = getTodayWorkoutFocus(user, todayDayName);
 
+    // 2. 2-Hour post check-in reminder nudge
     if (focusToday && user.workout_reminded_date === today) {
       if (isTimeTwoHoursLater(user.checkin_time, currentTime)) {
         const checkinToday = db.getCheckinByUserDate(user.id, today);
         const hasCheckedIn = checkinToday && checkinToday.status !== 'missed' && checkinToday.status !== 'failed';
         if (!hasCheckedIn) {
           if (user.workout_acknowledged_date !== today) {
-            const msg = `Hey ${user.name}! You missed your workout reminder for ${focusToday} at ${user.checkin_time} and didn't reply. Are you lacing up or slipping? Get moving! 👊`;
+            const msg = `Hey ${user.name}! You missed your workout reminder for ${focusToday} at ${user.checkin_time} and didn't reply. Are you lacing up or slipping? Get moving!`;
             messaging.sendText(user.phone, msg).catch((err) => console.error(err));
           } else {
-            const msg = `Hey ${user.name}! You mentioned you were going for ${focusToday}, but I haven't received your check-in proof yet. Send your photo + text proof now to log it!`;
+            const msg = `Hey ${user.name}! You mentioned you were heading out for ${focusToday}, but I haven't received your check-in proof yet. Send your photo + text proof now to log it!`;
             messaging.sendText(user.phone, msg).catch((err) => console.error(err));
           }
         }
       }
     }
 
+    // 3. 3-Hour post check-in gesture reminder
     if (focusToday && user.current_gesture && user.last_prompted_date === today) {
       if (isTimeThreeHoursLater(user.checkin_time, currentTime)) {
         const checkinToday = db.getCheckinByUserDate(user.id, today);
@@ -197,22 +279,60 @@ function tick() {
       }
     }
 
-    const isPro = user.tier && user.tier.startsWith('pro');
-    if (isPro) {
-      const waterHours = ['10:00', '14:00', '18:00'];
-      if (waterHours.includes(currentTime)) {
-        const [lastDate, sentHoursStr] = (user.water_reminders_sent || '').split(':');
-        const sentHours = lastDate === today ? (sentHoursStr || '').split(',') : [];
-        const hourOnly = currentTime.split(':')[0];
+    // 4. Hydration alerts (10:00, 14:00, 18:00, 21:00)
+    const waterHours = ['10:00', '14:00', '18:00', '21:00'];
+    if (waterHours.includes(currentTime)) {
+      const [lastDate, sentHoursStr] = (user.water_reminders_sent || '').split(':');
+      const sentHours = lastDate === today ? (sentHoursStr || '').split(',') : [];
+      const hourOnly = currentTime.split(':')[0];
 
-        if (!sentHours.includes(hourOnly)) {
-          const msg = `💧 *ShowUp Hydration Alert!* Time to drink a glass of water, ${user.name}. Keep your performance high and stay on track!`;
-          messaging.sendText(user.phone, msg).catch((err) => {
-            console.error(`Scheduler error (water reminder) for user ${user.id}:`, err.message);
-          });
-          const newSentHours = sentHours.concat(hourOnly).join(',');
-          db.updateUser(user.id, { water_reminders_sent: `${today}:${newSentHours}` });
-        }
+      if (!sentHours.includes(hourOnly)) {
+        gemini.generateHydrationReminder(user).then((msg) => {
+          return messaging.sendText(user.phone, msg);
+        }).catch((err) => {
+          console.error(`Scheduler error (water reminder) for user ${user.id}:`, err.message);
+        });
+        const newSentHours = sentHours.concat(hourOnly).join(',');
+        db.updateUser(user.id, { water_reminders_sent: `${today}:${newSentHours}` });
+      }
+    }
+
+    // 5. Meal & Nutrition Check-in (09:00 Breakfast, 13:30 Lunch, 20:30 Dinner)
+    const mealSchedule = { '09:00': 'breakfast', '13:30': 'lunch', '20:30': 'dinner' };
+    if (mealSchedule[currentTime]) {
+      const mealType = mealSchedule[currentTime];
+      let remindersLog = {};
+      try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
+      const todayLogs = remindersLog[today] || [];
+      const reminderKey = `meal_${mealType}`;
+
+      if (!todayLogs.includes(reminderKey)) {
+        gemini.generateMealReminder(user, mealType).then((msg) => {
+          return messaging.sendText(user.phone, msg);
+        }).catch((err) => {
+          console.error(`Scheduler error (${mealType} reminder) for user ${user.id}:`, err.message);
+        });
+        todayLogs.push(reminderKey);
+        remindersLog[today] = todayLogs;
+        db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
+      }
+    }
+
+    // 6. Sleep & Nightly Recovery Reminder (22:30)
+    if (currentTime === '22:30') {
+      let remindersLog = {};
+      try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
+      const todayLogs = remindersLog[today] || [];
+
+      if (!todayLogs.includes('sleep_recovery')) {
+        gemini.generateSleepRecoveryReminder(user).then((msg) => {
+          return messaging.sendText(user.phone, msg);
+        }).catch((err) => {
+          console.error(`Scheduler error (sleep reminder) for user ${user.id}:`, err.message);
+        });
+        todayLogs.push('sleep_recovery');
+        remindersLog[today] = todayLogs;
+        db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
       }
     }
   }
@@ -368,5 +488,5 @@ function startScheduler() {
   console.log(`Scheduler started (timezone: ${config.timezone}) [memory layer: nightly 23:30, weekly-prefs Sun 22:00]`);
 }
 
-module.exports = { startScheduler, tick, sendWeeklySummaries, runNightlySummaries, checkFollowUpNudges, runWeeklyPersonalization };
+module.exports = { startScheduler, tick, triggerUserReminder, sendWeeklySummaries, runNightlySummaries, checkFollowUpNudges, runWeeklyPersonalization };
 

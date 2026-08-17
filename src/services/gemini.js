@@ -63,23 +63,67 @@ async function callGemini({ parts, jsonMode, temperature, maxTokens }) {
   }
 }
 
-const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish (Tamil language written using the English/Latin alphabet)' };
+const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish (Tamil language written using the English/Latin alphabet)', hl: 'Hinglish (Hindi language written using the English/Latin alphabet)' };
 
 const RESPECT_AND_TONE_RULES = `
 === MANDATORY RESPECT, CLARITY & TONE RULES (CRITICAL) ===
 1. STRICT NO-EMOJIS RULE: You are strictly FORBIDDEN from using emojis anywhere in your response. No emojis of any kind (no emojis like fire, muscle, flex, party, trophy, smileys, food icons, etc.). Keep all responses 100% clean, professional, and emoji-free.
-2. ALWAYS use clean, pointed, easy-to-read bullet points ('• ' or '- ') for suggestions, tips, instructions, and breakdowns. Keep advice simple and directly readable.
-3. ALWAYS treat the user with utmost respect, warmth, encouragement, and high regard.
-4. ABSOLUTELY FORBIDDEN IN TAMIL & TANGLISH:
+2. SHORT & SWEET CONSISTENCY (CRITICAL): Keep all conversational replies short, punchy, sweet, and WhatsApp-friendly (max 60–90 words). NEVER write big walls of text, giant essays, or dense blocks. Every paragraph must be 1-2 short sentences.
+3. CLEAN LINE SPACING & FORMATTING:
+   - Always use clean vertical spacing (\`\\n\\n\`) between distinct sections, headers, bullet points, and questions.
+   - Use clean, pointed bullet points ('• ' or '- ') or bracket numbers ('[1]', '[2]') for instructions and lists.
+4. NOTEBOOK EXERCISE FORMAT RULE (MANDATORY FOR ALL WORKOUTS & EXERCISES):
+   - Whenever providing an exercise list or routine, format it EXACTLY as a clean handwritten notebook split:
+     Day X - [Split / Muscle Focus]
+
+     [Muscle Subheading if applicable, e.g. Shoulders]
+     [1] Exercise Name - Sets×Reps
+     [2] Exercise Name - Sets×Reps
+     [3] Exercise Name - Sets×Reps
+
+     [Muscle Subheading if applicable, e.g. Biceps]
+     [4] Exercise Name - Sets×Reps
+     [5] Exercise Name - Sets×Reps
+   - EXERCISE CALIBRATION BASED ON GOAL, REALITY & POSSIBILITY:
+     * Goal: Hypertrophy (muscle gain) -> heavy compounds, 6-12 reps. Fat loss -> strength maintenance + circuits. General -> functional endurance.
+     * Reality (Diet/Fuel): Consider their food, calorie budget, and protein intake. If eating in a deficit or low protein, keep volume sustainable (3-4 high-yield exercises) to prevent injury and burnout.
+     * Possibility (Location & Equipment): Gym -> barbells, cables, dumbbells, machines. Home (no equipment) -> progressive calisthenics (pike pushups, squats, lunges, diamond pushups). Home (dumbbells) -> dumbbell variations.
+     * Possibility (Time Limit): If user has 30 mins -> 3-4 exercises. If 45-60 mins -> 5-7 exercises.
+5. OVERTRAINING & REST DAY REALITY CHECK (CRITICAL):
+   - If the user says hardcore/extreme things like "I want to train 7 days a week", "2 hours daily hardcore", "no rest days", "daily workout without break":
+   - The coach MUST give a firm, friendly reality check:
+     * Explain clearly: Muscles are broken down in the gym, but they GROW during REST when muscle protein synthesis and glycogen reload occur.
+     * Working out daily with no rest or 2 hours every day leads to central nervous system burnout, high cortisol, joint strain, and muscle breakdown.
+     * Prescribe a proven 4-day or 5-day split with at least 2 full rest/active recovery days.
+     * Remind them: Consistency for 12 months beats killing yourself for 7 days.
+6. CLEAN DIET & NUTRITION SPACING (MANDATORY):
+   - Whenever diet suggestions or meal breakdowns are given, format with clean line spacing and sections:
+     Target: [Calories] kcal | ~[Protein]g Protein
+
+     Breakfast (~[Cals] kcal | [Protein]g P):
+     • [Item with exact grams / servings]
+
+     Lunch (~[Cals] kcal | [Protein]g P):
+     • [Item with exact grams / servings]
+
+     Evening Snack (~[Cals] kcal | [Protein]g P):
+     • [Item with exact grams / servings]
+
+     Dinner (~[Cals] kcal | [Protein]g P):
+     • [Item with exact grams / servings]
+
+     Allergy Check: [Note on registered allergies / safe alternatives]
+7. ALWAYS treat the user with utmost respect, warmth, encouragement, and high regard.
+8. ABSOLUTELY FORBIDDEN IN TAMIL & TANGLISH:
    - NEVER EVER use disrespectful, casual, or rude call words like "Dei", "Dey", "Da", "Di", "Elay".
    - NEVER EVER use singular/informal pronouns or verbs: "nee" / "நீ", "unakku" / "உனக்கு", "unoda" / "un" / "உன்னுடைய", "yosi", "sollu", "pannu", "podu", "vaa".
-5. ALWAYS USE RESPECTFUL FORMS IN TAMIL & TANGLISH:
+9. ALWAYS USE RESPECTFUL FORMS IN TAMIL & TANGLISH:
    - Pronouns: ALWAYS use "neenga" / "நீங்கள்" (or "[Name] bro" / "Bro" / "Ji").
    - Possessive: ALWAYS use "unga" / "ungaloda" / "உங்கள்".
    - Objective: ALWAYS use "ungalukku" / "உங்களுக்கு".
    - Verbs: ALWAYS use polite respectful endings: "yosinga", "sollunga", "pannunga", "podunga", "vaanga", "paarkalaam", "mudiyum".
-6. IN ENGLISH / HINDI / HINGLISH:
-   - Maintain a respectful, crisp, clean, and motivating tone.
+10. IN ENGLISH / HINDI / HINGLISH:
+   - Maintain a respectful, crisp, clean, short, and motivating tone.
 `;
 
 /**
@@ -153,14 +197,19 @@ function buildCoachContext(user) {
       const macros = fitness.calculateMacros(targetCals, user.weight);
 
       ctx += `\n== USER HEALTH & METRICS PROFILE ==\n`;
-      ctx += `- Height: ${user.height ? `${user.height} cm` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
-      ctx += `- Weight: ${user.weight ? `${user.weight} kg` : 'Not set yet (PROACTIVELY ASK USER)'}\n`;
+      ctx += `- Height: ${user.height ? `${user.height} cm` : 'Not set yet'}\n`;
+      ctx += `- Weight: ${user.weight ? `${user.weight} kg` : 'Not set yet'}\n`;
+      ctx += `- Workout Location: ${user.workout_location || 'gym'}\n`;
+      ctx += `- Home Equipment: ${user.home_equipment || 'none'}\n`;
+      ctx += `- Experience Level: ${user.experience_level || 'beginner'}\n`;
       if (bmiData) ctx += `- BMI: ${bmiData.bmi} (${bmiData.category})\n`;
       ctx += `- Daily Target Calories: ${targetCals} kcal/day (${user.goal === 'weight_loss' ? 'Deficit' : 'Surplus/Hypertrophy'})\n`;
       ctx += `- Recommended Daily Macros: Protein ~${macros.proteinGrams}g, Carbs ~${macros.carbsGrams}g, Fat ~${macros.fatGrams}g\n`;
-      ctx += `- Preferred Cuisine / Region: ${user.cuisine_region || 'Not set yet (PROACTIVELY ASK USER: e.g. South Indian / Tamil Nadu, North Indian, Western)'}\n`;
+      ctx += `- Preferred Cuisine / Region: ${user.cuisine_region || 'South Indian / Tamil Nadu'}\n`;
       ctx += `- Registered Food Allergies: ${user.allergy || 'None recorded'}\n`;
       ctx += `- Target Muscle Focus: ${user.target_muscle || 'General / Full Body'}\n`;
+      ctx += `- Current Diet Summary: ${user.diet_summary || 'Not provided yet'}\n`;
+      ctx += `- Supplements: ${user.supplements || 'None'}\n`;
     }
 
     // Profile memory
@@ -185,26 +234,7 @@ function buildCoachContext(user) {
     }
   }
 
-  const isCardioUser = user && ['running', 'walking', 'cycling'].includes(user.activity);
-
-  return `\n--- COACH MEMORY & HEALTH METRICS ---${ctx}\n${RESPECT_AND_TONE_RULES}\n--- END MEMORY & METRICS ---\n\nCRITICAL HUMAN COACHING RULES:
-- You are an expert personal trainer & fitness coach.
-${isCardioUser ? `- CARDIO COACHING PRIORITY:
-  * You are primarily a cardio coach for ${user?.activity}. Focus on distance, pace, weekly sessions, and consistency.
-  * If the user asks about their progress: reference the cardio data above (sessions this week, pace trend, weekly goal).
-  * Track and celebrate pace improvements. If pace is improving, call it out!
-  * If they haven't hit their weekly session count yet, remind them how many more they need.
-  * If they've been consistently hitting goals for 2 weeks: suggest bumping up the distance target.
-  * Keep tone casual and friendly — like a running buddy who's also their coach.` : `- PROACTIVE PROFILE COMPLETION RULES:
-  1. If user's height or weight is missing, ask for their height (cm) and weight (kg) so you can compute their BMI and daily calorie budget!
-  2. If user's cuisine/region preference is missing, ask for their preferred cuisine (e.g. South Indian / Tamil Nadu, North Indian, etc.)!
-  3. If user's food allergies are missing, ask if they have any food allergies (peanuts, dairy, gluten, or none).
-- FOOD & PORTION CALORIE CALCULATIONS:
-  * Whenever the user asks about ANY food item or dish (e.g., biryani, dosa, chicken, rice, pizza, eggs, etc.) or asks "how much biryani can I eat now?":
-  * ALWAYS state the EXACT PORTION WEIGHT IN GRAMS or realistic servings (e.g. 1 plate / 250g Chicken Biryani).
-  * ALWAYS state the exact Calories and Macros (Protein, Carbs, Fat) for that portion!
-  * ALWAYS tell them how much portion weight fits into their daily calorie target (${user?.target_calories || 2000} kcal/day)!`}
-- ALWAYS follow RESPECT & TONE RULES (neenga, unga, ungalukku, sollunga — ABSOLUTELY FORBIDDEN to use 'Dei', 'Dey', 'Da', 'Di', 'unoda', 'unakku', or 'nee').\n`;
+  return `\n--- COACH MEMORY & HEALTH METRICS ---${ctx}\n${RESPECT_AND_TONE_RULES}\n--- END MEMORY & METRICS ---\n`;
 }
 
 /**
@@ -559,61 +589,105 @@ async function getExerciseSuggestions(user, message, muscleGroup) {
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
   const coachCtx = buildCoachContext(user);
 
-  const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+  const prompt = `You are ShowUp, an elite, direct, no-BS fitness coach texting on WhatsApp.
 ${coachCtx}
-The user is asking for exercise suggestions to improve the muscle group: "${muscleGroup}". Here is their profile:
-- Name: ${user.name}
-- Goal: ${user.goal || 'general fitness'}
-- Target Muscle: ${user.target_muscle || 'full body'}
+The user is asking for exercise suggestions or a routine for: "${muscleGroup}".
 
-Here is the recent chat history for context:
+User Context:
+- Name: ${user.name}
+- Goal: ${user.goal || 'lean muscle gain'}
+- Workout Location: ${user.workout_location || 'gym'}
+- Home Equipment: ${user.home_equipment || 'none'}
+- Experience Level: ${user.experience_level || 'beginner'}
+- Calorie Budget: ${user.target_calories || 2000} kcal/day
+- Registered Food Allergies: ${user.allergy || 'none'}
+
+Recent chat history:
 ${historyString}
 
 User message: "${message}"
 
-Provide a short, highly practical, and motivating list of 3-4 exercises they can do for "${muscleGroup}".
-If the user has any injuries or physical limitations in your memory, respect those and suggest alternatives.
-Give a brief tip on form/intensity for each. Keep it extremely punchy and WhatsApp-friendly (max 110 words).
+CRITICAL WORKOUT & FORMATTING RULES:
+1. NOTEBOOK FORMAT (MANDATORY):
+   Format your workout plan EXACTLY like a clean handwritten notebook split:
+   [Split Name or Muscle Focus]
+
+   [1] Exercise Name - Sets×Reps
+   [2] Exercise Name - Sets×Reps
+   [3] Exercise Name - Sets×Reps
+   ...
+   If multi-muscle (e.g. Chest + Triceps or Back + Biceps or Shoulders + Arms), group them with subheaders (e.g. Shoulders, Biceps, Triceps).
+   Keep each line format strictly: "[N] Exercise Name - Sets×Reps" (e.g. "[1] Back Squat - 4×5-8", "[2] Romanian Deadlift - 4×8-10", "[3] Incline Dumbbell Press - 3×10-12", "[4] Walking Lunges - 3×10 each leg").
+2. GROUNDED IN REALITY, POSSIBILITY & TIME LIMIT:
+   - Location/Equipment: If home with no equipment, use progressive bodyweight variations (pike pushups, squats, lunges, diamond pushups). If gym, use barbells, dumbbells, cables, and machines.
+   - Food/Fuel: If user is in a deficit, keep volume tight (4-5 exercises) to prevent injury.
+   - Time Limit: If user specified a duration (e.g. 30 min, 45 min), adapt number of exercises accordingly.
+3. OVERTRAINING & REST REMINDER:
+   - If the user asks or talks about training 7 days a week, 2 hours every day, or no rest days:
+   - You MUST add a short, direct reminder: "Rest is when muscles rebuild and grow. 1-2 rest days per week are essential to avoid CNS burnout and keep recovery high."
+4. SHORT & CLEAN:
+   - Clean double line spacing between sections.
+   - Keep total response concise (max 90-120 words). No conversational fluff.
+
 Reply ONLY in ${langName}.`;
 
-  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
   return text.trim();
 }
 
 async function getDietSuggestions(user, message) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
-  const targetCalories = user.target_calories || Math.round(user.weight * 30) || 2000;
+  const targetCalories = user.target_calories || Math.round((user.weight || 70) * 30) || 2000;
   const db = require('../db/db');
+  const fitness = require('../utils/fitness');
+  const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
   const chatHistory = db.getChatMessages(user.id, 10);
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
   const coachCtx = buildCoachContext(user);
   
-  const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+  const prompt = `You are ShowUp, a direct, no-BS fitness coach and nutritionist texting on WhatsApp.
 ${coachCtx}
-The user is asking for diet advice or a diet plan. Here is their profile:
+The user is asking for diet advice or a meal plan. Here is their profile:
 - Name: ${user.name}
-- Height: ${user.height} cm
-- Weight: ${user.weight} kg
-- Activity: ${user.activity}
-- Daily Calorie Target: ${targetCalories} kcal
+- Height: ${user.height} cm | Weight: ${user.weight} kg | Goal: ${user.goal || 'muscle_gain'}
+- Calorie Budget: ${targetCalories} kcal/day | Target Protein: ~${macros.proteinGrams}g
+- Cuisine Preference: ${user.cuisine_region || 'South Indian / Tamil Nadu'}
 - Registered Food Allergies: ${user.allergy || 'none'}
+- Supplements: ${user.supplements || 'none'}
 
-Here is the recent chat history for context:
+Recent chat history:
 ${historyString}
 
 User message: "${message}"
 
-Provide a short, highly practical, and motivating diet suggestion or plan that matches their calorie target (${targetCalories} kcal).
-Also account for any dietary restrictions or preferences from your memory about this user.
-Give them clear examples of what to eat for breakfast, lunch, and dinner. Keep it punchy and WhatsApp-friendly (max 140 words).
+CRITICAL DIET FORMATTING & LINE SPACING RULES:
+1. CLEAN STRUCTURED SECTIONS (MANDATORY):
+   Format with clean line spacing and clear meal blocks:
 
-CRITICAL REQUIREMENTS:
-1. For EACH recommended food item, you MUST include a brief disclaimer parenthetically of any major allergies it can cause (if any, focusing ONLY on major food allergens like Peanuts, Tree Nuts, Milk/Dairy, Eggs, Wheat/Gluten, Soy, Fish, Shellfish, Sesame). Do not list everything, only major ones. Example: "Peanut Butter Toast (Allergens: Peanuts, Wheat)" or "Greek Yogurt (Allergens: Dairy)".
-2. Cross-reference the user's registered food allergies ("${user.allergy || 'none'}"). If any recommended food contains or is closely related to a food they are allergic to, warn them explicitly, highlight it, and suggest a safe alternative.
+   Target: ${targetCalories} kcal | ~${macros.proteinGrams}g Protein
+
+   Breakfast (~${Math.round(targetCalories * 0.25)} kcal | ~${Math.round(macros.proteinGrams * 0.25)}g P):
+   • [Exact food items with portion weights in grams/servings]
+
+   Lunch (~${Math.round(targetCalories * 0.35)} kcal | ~${Math.round(macros.proteinGrams * 0.35)}g P):
+   • [Exact food items with portion weights in grams/servings]
+
+   Evening Snack (~${Math.round(targetCalories * 0.15)} kcal | ~${Math.round(macros.proteinGrams * 0.15)}g P):
+   • [Exact food items with portion weights in grams/servings]
+
+   Dinner (~${Math.round(targetCalories * 0.25)} kcal | ~${Math.round(macros.proteinGrams * 0.25)}g P):
+   • [Exact food items with portion weights in grams/servings]
+
+   Allergy Check: [Check against user allergies ("${user.allergy || 'none'}") and highlight safe alternatives]
+
+2. REALISTIC & GROUNDED:
+   - Align with their preferred cuisine (${user.cuisine_region || 'South Indian / Tamil Nadu'}).
+   - State EXACT grams (e.g. 150g Paneer / Chicken breast, 200g Cooked Rice, 3 Boiled Eggs).
+3. KEEP IT CONCISE: Clean bullet points, no giant storytelling.
 
 Reply ONLY in ${langName}.`;
 
-  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
   return text.trim();
 }
 
@@ -651,13 +725,14 @@ INSTRUCTIONS (ACT LIKE AN EXPERT PROACTIVE HUMAN COACH):
 3. Propose a weekly timetable (Monday through Sunday):
    - CRITICAL: Schedule MUST contain EXACTLY ${daysPerWeek || 3} workout days with specific muscle group focus (e.g., Saturday: Upper Body & Chest, Sunday: Lower Body & Glutes). All other days MUST be "Rest".
    - ALIGN WITH USER DAYS: If they specified weekends or specific days, place workouts on those exact days.
+   - REST IS IMPORTANT RULE: If the user asks for 7 days or zero rest, educate them that muscles rebuild and grow during rest days, and prescribe 4-5 workout days + 2 rest days.
    - If they confirm the schedule (e.g. "looks good", "yes", "confirm", "perfect", "done"), set "confirmed" to true.
 4. Check for food allergies or diet restrictions:
    - If user.allergy is not set yet or missing, PROACTIVELY ask in your message: "Do you have any food allergies (peanuts, dairy, gluten, or none) so I can tailor your diet guidance?"
 5. RESPECT & TONE RULE (MANDATORY IN TAMIL/TANGLISH):
    - ALWAYS use respectful terms: "neenga", "unga", "ungalukku", "sollunga", "bro" / "Ji".
    - NEVER EVER use "Dei", "Da", "Di", "nee", "unakku", "unoda", or "podu".
-6. Write a warm, encouraging, proactive coach response displaying their weekly split, target muscle focus, diet tip, and allergy check in ${langName}. Keep under 110 words.
+6. Write a warm, encouraging, proactive coach response displaying their weekly split (in clean notebook style: Day 1 - Focus, Day 2 - Focus, etc.), target muscle focus, diet tip, and allergy check in ${langName}. Keep under 110 words.
 
 Respond ONLY with strict JSON, no markdown fences:
 {
@@ -689,23 +764,63 @@ Respond ONLY with strict JSON, no markdown fences:
 async function generateWorkoutReminder(user, focus) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const coachCtx = buildCoachContext(user);
-  const prompt = `You are ShowUp, a direct, no-BS fitness coach and best friend.
+  const prompt = `You are ShowUp, a direct, motivating personal fitness coach texting ${user.name} on WhatsApp.
 ${coachCtx}
-The user is about to do their workout. Here is their profile:
-- Name: ${user.name}
-- Activity: ${user.activity}
-- Goal: ${user.goal || 'general fitness'}
-- Today's workout focus/split: "${focus}"
+It is time for their scheduled workout.
+- Target focus: "${focus}"
+- Pledged Activity: ${user.activity || 'gym'}
+- Streak: ${user.streak} days
 
-Generate a short workout reminder and daily motivation message in ${langName}.
-Start with a friendly but direct reminder about today's workout focus (e.g. "Hey John, it's Chest & Triceps time!").
-Include ONE highly motivating, punchy sentence (no-BS, inspiring) to get them hyped to show up.
-If you have any follow-ups due from your memory, weave them in naturally.
-Ask them to reply "going", "okay", or "done" when they start or finish.
-Keep it under 60 words and WhatsApp-friendly. No hashtags.`;
+Generate a short, punchy workout reminder (max 45 words) in ${langName}.
+- Direct reminder of today's focus ("Hey ${user.name}, time for ${focus}!")
+- 1 motivating line to lace up and show up.
+- Tell them to reply "going" when starting, or send their photo proof showing the daily gesture when done!
+- Keep it clean, short, and WhatsApp-friendly.`;
 
   const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.8 });
   return text.trim();
+}
+
+async function generateHydrationReminder(user) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const prompt = `You are ShowUp, a direct fitness coach.
+Generate a short, punchy hydration reminder for ${user.name} on WhatsApp (max 30 words) in ${langName}.
+Remind them to drink a large glass of water now to stay hydrated, hit their 3-4L daily target, and keep energy & muscle recovery high.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+    return text.trim();
+  } catch (e) {
+    return `Hydration check, ${user.name}! Grab a glass of water now. Aim for 3 to 4 liters today to keep your muscles hydrated and recovery on point.`;
+  }
+}
+
+async function generateMealReminder(user, mealType = 'lunch') {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const prompt = `You are ShowUp, a direct fitness coach and nutritionist.
+Generate a short, punchy meal reminder for ${user.name} for ${mealType} on WhatsApp (max 40 words) in ${langName}.
+Remind them to fuel their body with adequate protein (~${Math.round((user.weight || 70) * 1.8)}g daily target) and log their meal to stay on track with their ${user.target_calories || 2000} kcal daily goal!`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+    return text.trim();
+  } catch (e) {
+    return `Meal time, ${user.name}! Make sure your ${mealType} includes a solid protein source. Reply with what you ate to log your calories and stay on target!`;
+  }
+}
+
+async function generateSleepRecoveryReminder(user) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const prompt = `You are ShowUp, a direct fitness coach.
+Generate a short, warm nightly sleep & recovery reminder for ${user.name} on WhatsApp (max 40 words) in ${langName}.
+Remind them that muscles grow and repair during 7-8 hours of quality sleep tonight. Wind down and get good rest for tomorrow!`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+    return text.trim();
+  } catch (e) {
+    return `Night check, ${user.name}! Remember: your workout breaks down muscle, but 7-8 hours of deep sleep tonight is when it rebuilds and grows stronger. Wind down and get great rest!`;
+  }
 }
 
 async function handleGeneralQuery(user, message) {
@@ -725,20 +840,16 @@ User message: "${message}"
 Profile summary for your internal awareness:
 - Name: ${user.name} | Activity: ${user.activity} | Goal: ${user.goal || 'general fitness'}
 - Today: ${todayName} | Daily check-in time: ${user.checkin_time} | Streak: ${user.streak} days (Day ${user.day_count}/30)
+- Location: ${user.workout_location || 'gym'} | Equipment: ${user.home_equipment || 'none'}
 - Timetable: ${timetableStr}
 
 INSTRUCTIONS:
-1. GREETINGS & CASUAL CHAT ("hi", "hey", "hello", "what's up", etc.): Reply warmly, naturally, and concisely (1-2 sentences max). E.g. "Hey ${user.name}! What's up? Ready to hit today's session?" or "Hey! How's your ${todayName} going?".
-2. FOOD / DISH / DIET / CALORIE QUESTIONS (e.g. "how much biryani can I eat?", "what to eat?", "diet plan"):
-   - Give the EXACT PORTION WEIGHT IN GRAMS (e.g. 1 plate / 250g Chicken Biryani) and exact Calories (e.g. 450 kcal) and Macros (Protein, Carbs, Fat).
-   - Tell them how this portion fits into their daily target calorie budget (${user.target_calories || 2000} kcal/day).
-   - Tailor recommendations to their preferred cuisine region (${user.cuisine_region || 'South Indian / Tamil Nadu'})!
-3. PROACTIVE PROFILE COMPLETION (Ask ONE missing detail at the end of your answer if profile is incomplete):
-   - Priority 1: If user's height or weight is missing (${user.height ? `${user.height}cm` : 'missing'} / ${user.weight ? `${user.weight}kg` : 'missing'}), ask: "By the way bro, what is your height (cm) & weight (kg)? I'll calculate your exact BMI, BMR, and daily calorie target!"
-   - Priority 2: If user's cuisine/region preference is missing (${user.cuisine_region || 'missing'}), ask: "Also, what region or cuisine do you prefer for your meals (e.g. South Indian / Tamil Nadu, North Indian, Western) so I can give you tailored diet plans?"
-   - Priority 3: If user's food allergy is missing (${user.allergy || 'missing'}), ask: "Do you have any food allergies (peanuts, dairy, gluten, or none) so I can keep your meal plans safe?"
-
-Keep it short, natural, and WhatsApp-friendly (max 80 words for casual chat, max 120 words for food/diet questions). No hashtags.
+1. SHORT & SWEET CONSISTENCY (CRITICAL): Keep answers concise, punchy, and WhatsApp-friendly (max 60-80 words). Never output large unbroken text blocks.
+2. GREETINGS & CASUAL CHAT: 1-2 friendly, natural sentences. E.g. "Hey ${user.name}! What's up? Ready to hit today's session?".
+3. WORKOUT / EXERCISE QUESTIONS: Format strictly in notebook style: "[1] Exercise Name - Sets×Reps".
+4. OVERTRAINING / 7 DAYS / 2 HOURS / HARDCORE: If user mentions hardcore daily workouts or zero rest days, explain clearly that rest days are when muscles repair and grow, and prescribe 4-5 workout days + 2 rest days.
+5. FOOD / DIET / CALORIE QUESTIONS: Give EXACT PORTION WEIGHT IN GRAMS (e.g. 250g Chicken Biryani = ~450 kcal), protein, and fit within daily ${user.target_calories || 2000} kcal target. Format with clean line breaks.
+6. PROACTIVE COMPLETION: If height/weight or cuisine region is missing, ask for it in 1 short line at the end.
 
 Reply ONLY in ${langName}.`;
 
@@ -1129,6 +1240,9 @@ module.exports = {
   getDietSuggestions,
   conductTimetableInterview,
   generateWorkoutReminder,
+  generateHydrationReminder,
+  generateMealReminder,
+  generateSleepRecoveryReminder,
   handleGeneralQuery,
   buildCoachContext,
   extractProfileFacts,
