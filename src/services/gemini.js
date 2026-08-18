@@ -63,7 +63,13 @@ async function callGemini({ parts, jsonMode, temperature, maxTokens }) {
   }
 }
 
-const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish (Tamil language written using the English/Latin alphabet)', hl: 'Hinglish (Hindi language written using the English/Latin alphabet)' };
+const LANGUAGE_NAMES = {
+  en: 'English',
+  ta: 'Tamil (written strictly in pure Tamil script)',
+  hi: 'Hindi (written strictly in Devanagari script)',
+  tl: 'Tanglish (Tamil spoken language written 100% using the English/Latin alphabet ONLY - STRICTLY FORBIDDEN from using any Tamil script characters because the user CANNOT read Tamil script)',
+  hl: 'Hinglish (Hindi spoken language written 100% using the English/Latin alphabet ONLY - STRICTLY FORBIDDEN from using any Devanagari characters)'
+};
 
 const RESPECT_AND_TONE_RULES = `
 === MANDATORY RESPECT, CLARITY & TONE RULES (CRITICAL) ===
@@ -124,7 +130,57 @@ const RESPECT_AND_TONE_RULES = `
    - Verbs: ALWAYS use polite respectful endings: "yosinga", "sollunga", "pannunga", "podunga", "vaanga", "paarkalaam", "mudiyum".
 10. IN ENGLISH / HINDI / HINGLISH:
    - Maintain a respectful, crisp, clean, short, friendly, and motivating tone. Zero emojis.
+11. CRITICAL TANGLISH ('tl') ZERO-TAMIL-SCRIPT RULE:
+   - The user speaks Tamil and reads TANGLISH, but CANNOT READ TAMIL SCRIPT.
+   - When language is Tanglish ('tl'): You MUST write 100% in the English/Latin alphabet ONLY.
+   - NEVER include ANY Tamil Unicode/script characters (e.g. absolutely no 'நாளை', 'மணிக்கு', 'உடற்பயிற்சி', 'வணக்கம்', 'நீங்கள்').
+   - Transliterate all Tamil words phonetically using English letters: "Vanakkam bro", "Naalaiku morning 7 AM ku workout irukku", "Unga height and weight sollunga", "Nalla rest edunga".
+12. CRITICAL HINGLISH ('hl') ZERO-DEVANAGARI RULE:
+   - When language is Hinglish ('hl'): Write 100% using the English/Latin alphabet ONLY.
+   - NEVER use ANY Devanagari characters (e.g. no 'नमस्ते', 'कसरत').
+   - Transliterate all Hindi words phonetically using English letters: "Namaste bhai", "Kal subah workout karenge".
 `;
+
+const TAMIL_SCRIPT_MAP = {
+  'நாளை': 'naalaiku',
+  'காலை': 'kaalai',
+  'மாலை': 'maalai',
+  'இரவு': 'iravu',
+  'வணக்கம்': 'vanakkam',
+  'மணிக்கு': 'ku',
+  'மணி': 'mani',
+  'உடற்பயிற்சி': 'workout',
+  'பயிற்சி': 'workout',
+  'நீங்கள்': 'neenga',
+  'உங்களுக்கு': 'ungalukku',
+  'உங்கள்': 'unga',
+  'உணவு': 'food',
+  'சாப்பாடு': 'saappadu',
+  'தண்ணீர்': 'thanni',
+  'சரி': 'seri',
+  'நன்றி': 'nandri',
+  'ஆம்': 'aama',
+  'இல்லை': 'illa',
+};
+
+function sanitizeScriptForLanguage(text, language) {
+  if (!text) return text;
+  if (language === 'tl') {
+    let cleaned = text;
+    for (const [tamilWord, tanglishWord] of Object.entries(TAMIL_SCRIPT_MAP)) {
+      cleaned = cleaned.split(tamilWord).join(tanglishWord);
+    }
+    // Remove any remaining stray Tamil script characters
+    cleaned = cleaned.replace(/[\u0B80-\u0BFF]+/g, '');
+    // Clean potential leftover duplicate spaces
+    return cleaned.replace(/\s{2,}/g, ' ').trim();
+  }
+  if (language === 'hl') {
+    // Remove any stray Devanagari script characters
+    return text.replace(/[\u0900-\u097F]+/g, '').replace(/\s{2,}/g, ' ').trim();
+  }
+  return text;
+}
 
 /**
  * Builds a compact coach context block from the user's profile_json,
@@ -641,10 +697,11 @@ Respond strictly with a JSON object, no markdown fences:
   try {
     const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
     const parsed = JSON.parse(cleaned);
+    const targetLang = (parsed.extracted && parsed.extracted.language) || (user && user.language) || 'en';
     return {
       extracted: parsed.extracted || {},
       is_profile_complete: Boolean(parsed.is_profile_complete),
-      reply: parsed.reply || '',
+      reply: sanitizeScriptForLanguage(parsed.reply || '', targetLang),
     };
   } catch (err) {
     throw new GeminiError(`Could not parse Gemini JSON response: ${text}`);
@@ -823,7 +880,7 @@ CRITICAL WORKOUT & FORMATTING RULES:
 Reply ONLY in ${langName}.`;
 
   const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
-  return text.trim();
+  return sanitizeScriptForLanguage(text.trim(), user.language);
 }
 
 async function getDietSuggestions(user, message) {
@@ -890,7 +947,7 @@ CRITICAL DIET FORMATTING & LINE SPACING RULES:
 Reply ONLY in ${langName}.`;
 
   const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
-  return text.trim();
+  return sanitizeScriptForLanguage(text.trim(), user.language);
 }
 
 async function generateDietDeviationGuidance(user, message) {
@@ -926,7 +983,7 @@ CORE PRINCIPLES & GUIDANCE:
 Reply ONLY in ${langName}.`;
 
   const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
-  return text.trim();
+  return sanitizeScriptForLanguage(text.trim(), user.language);
 }
 
 /**
@@ -985,7 +1042,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, maxTokens: 1500 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (err) {
     console.warn('Fallback generating nutrition plan:', err.message);
     return `Your Tailored Nutrition Plan\n\nDaily Targets:\n• Calories: ~${targetCalories} kcal\n• Protein: ~${macros.proteinGrams}g\n• Water: 3-4 Liters\n\nMeal Breakdown:\n\nBreakfast:\n• 3 Eggs (or 100g Paneer/Tofu) + 2 slices brown bread or 3 idlis\n\nLunch:\n• 150g Chicken breast / Paneer / Soya chunks + 1.5 cup rice/2 rotis + 1 bowl dal + salad\n\nEvening Snack:\n• 1 glass milk or scoop protein + handful nuts / fruit\n\nDinner:\n• 150g Protein source + 2 rotis or 1 cup rice + veggies\n\nKey Rules:\n• Hit your ~${macros.proteinGrams}g protein target daily.\n• Log your meals anytime for instant tracking.`;
@@ -1037,7 +1094,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const reply = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, maxTokens: 1200 });
-    return reply.trim();
+    return sanitizeScriptForLanguage(reply.trim(), user.language);
   } catch (err) {
     return `Your Custom Nutrition Plan is locked in.\n\nYour Meals:\n${text}\n\nCoach Review:\n• Plan saved. Hit your daily protein target (~${macros.proteinGrams}g) consistently.\n• Log your daily meals as you eat them!`;
   }
@@ -1091,7 +1148,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const reply = await callGemini({ parts, temperature: 0.4, maxTokens: 1500 });
-    return reply.trim();
+    return sanitizeScriptForLanguage(reply.trim(), user.language);
   } catch (err) {
     console.warn('Fallback OCRing diet chart image:', err.message);
     return `Diet Chart Received & Saved.\n\nI have logged your diet chart in your profile. Hit your daily protein target (~${macros.proteinGrams}g) consistently and log your daily meals as you eat them!`;
@@ -1162,7 +1219,11 @@ Respond ONLY with strict JSON, no markdown fences:
   const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.2 });
   try {
     const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
-    return JSON.parse(cleaned);
+    const parsed = JSON.parse(cleaned);
+    if (parsed.reply) {
+      parsed.reply = sanitizeScriptForLanguage(parsed.reply, language);
+    }
+    return parsed;
   } catch (err) {
     throw new GeminiError(`Could not parse timetable response: ${text}`);
   }
@@ -1193,7 +1254,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (e) {
     return `Training today — ${timeStr}.\n\n${focus}.\n\nYour session is ready. I will check in after your workout.`;
   }
@@ -1208,7 +1269,7 @@ STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (e) {
     return `Hydration check, ${user.name}. Grab a glass of water now. Aim for 3 to 4 liters today to keep your muscles hydrated and recovery on point.`;
   }
@@ -1223,7 +1284,7 @@ STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (e) {
     return `Meal time, ${user.name}. Make sure your ${mealType} includes a solid protein source. Reply with what you ate to log your calories and stay on target.`;
   }
@@ -1238,7 +1299,7 @@ STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (e) {
     return `Night check, ${user.name}. 7-8 hours of deep sleep tonight is when your muscles rebuild and grow stronger. Wind down and get great rest.`;
   }
@@ -1275,7 +1336,7 @@ INSTRUCTIONS:
 Reply ONLY in ${langName}.`;
 
   const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
-  return text.trim();
+  return sanitizeScriptForLanguage(text.trim(), user.language);
 }
 
 // ── Memory layer Gemini functions ──
@@ -1494,7 +1555,7 @@ INSTRUCTIONS:
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.5 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user ? user.language : 'en');
   } catch (err) {
     console.error('[Gemini] answerPaymentAndTermsQuery error:', err);
     return null;
@@ -1642,7 +1703,7 @@ STYLE: Very short, punchy, supportive, and natural. STRICT ZERO EMOJIS. Respectf
 Reply ONLY in ${langName}.`;
 
   const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.85 });
-  return text.trim();
+  return sanitizeScriptForLanguage(text.trim(), language);
 }
 
 /**
@@ -1732,7 +1793,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (err) {
     console.warn('Fallback generating Day 1 workout:', err.message);
     const act = user.activity || 'workout';
@@ -1777,7 +1838,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (err) {
     return `One missed workout does not break progress. Repeated misses do.\n\nWe will adjust your schedule to make tomorrow frictionless. Rest up and let's lock in tomorrow at ${user.checkin_time || 'your scheduled time'}.`;
   }
@@ -1808,7 +1869,7 @@ Reply ONLY in ${langName}.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
-    return text.trim();
+    return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (err) {
     return `Workout logged.\n\nYou progressed. ${user.streak || 1}-day streak.\n\nNext session I will adjust your target based on today's performance.`;
   }
