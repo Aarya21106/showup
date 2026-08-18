@@ -1847,4 +1847,5 @@ module.exports = {
   generateTailoredNutritionPlan,
   parseUserProvidedDietPlan,
   parseDietChartImage,
+  LANGUAGE_NAMES,
 };

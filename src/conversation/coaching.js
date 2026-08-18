@@ -162,19 +162,23 @@ async function handleSubstitutionOrModification(user, text) {
     notes: text,
   });
 
+  const langMap = (gemini && gemini.LANGUAGE_NAMES) || { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish', hl: 'Hinglish' };
+  const langName = langMap[user.language] || 'English';
   const prompt = `You are ShowUp, an elite AI fitness coach living by the core principle: "Show Up First, Optimize Second".
 User: ${user.name}
+Language Preference: ${langName}
 Today's Scheduled Session: ${effective.focus}
 User Message: "${text}"
 
 Rules:
 1. Praise the user for showing up and getting the work done.
-2. Acknowledge their substitution or modification cleanly without any criticism (e.g. "That's fine. You still showed up and trained. I'll record the substitution and use it when evaluating your session.").
+2. Acknowledge their substitution or modification cleanly without any criticism in their language (${langName}).
 3. NEVER say "You failed to complete the workout".
 4. Clarify that their attendance is recorded as completed, workout as modified, and penalty is none.
 5. STRICT NO-EMOJIS RULE.
+6. Keep reply concise (max 35-50 words).
 
-Generate a warm, empowering coach response.`;
+Generate a warm, empowering coach response in ${langName}.`;
 
   try {
     const reply = await gemini.callGeminiRaw({ parts: [{ text: prompt }], temperature: 0.3 });
@@ -202,17 +206,20 @@ async function handleHealthAlert(user, text) {
     status: 'cancelled_valid',
   });
 
+  const langName = langMap[user.language] || 'English';
   const prompt = `You are ShowUp, a responsible AI fitness coach who prioritizes safety and health above all else ("Consistency without unnecessary risk").
 User: ${user.name}
+Language Preference: ${langName}
 User Message: "${text}"
 
 Rules:
-1. Prioritize their safety, rest, and medical care.
+1. Prioritize their safety, rest, and medical care in their language (${langName}).
 2. Reassure them that their session today is excused with ZERO penalty.
 3. NEVER push them to train through injury, sharp pain, or serious illness.
 4. STRICT NO-EMOJIS RULE.
+5. Keep reply concise (max 35-50 words).
 
-Generate a caring, professional coach response.`;
+Generate a caring, professional coach response in ${langName}.`;
 
   try {
     const reply = await gemini.callGeminiRaw({ parts: [{ text: prompt }], temperature: 0.2 });

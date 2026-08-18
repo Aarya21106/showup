@@ -17,39 +17,125 @@ const ONBOARD_STATES = new Set([
 const CHECKIN_STATES = new Set([states.ACTIVE, states.AWAITING_CHECKIN_FOLLOWUP]);
 
 function autoCorrectUserLanguage(user, text) {
-  if (!user || !text || text.length < 1) return user.language;
+  if (!user || !text || text.length < 1) return user.language || 'en';
 
-  const hasTamilScript = /[\u0B80-\u0BFF]/.test(text);
-  const hasDevanagariScript = /[\u0900-\u097F]/.test(text);
+  const cleanText = text.trim();
+  const lower = cleanText.toLowerCase();
 
-  let newLang = user.language;
+  // 1. Check for EXPLICIT Language Switch / Lock Commands
+  const isExplicitEnglish =
+    /(?:speak|talk|reply|chat|switch|change|set|use)\s+(?:in\s+|to\s+|language\s+to\s+)?english/i.test(lower) ||
+    /(?:english\s+(?:only|please|la\s+pesu|la\s+pesunga|me\s+bolo|mein\s+baat\s+karo))/i.test(lower) ||
+    /^english$/i.test(lower);
+
+  const isExplicitTanglish =
+    /(?:speak|talk|reply|chat|switch|change|set|use)\s+(?:in\s+|to\s+|language\s+to\s+)?tanglish/i.test(lower) ||
+    /(?:tanglish\s+(?:only|please|la\s+pesu|la\s+pesunga))/i.test(lower) ||
+    /^tanglish$/i.test(lower);
+
+  const isExplicitTamil =
+    /(?:speak|talk|reply|chat|switch|change|set|use)\s+(?:in\s+|to\s+|language\s+to\s+)?tamil/i.test(lower) ||
+    /(?:tamil\s+(?:la\s+pesu|la\s+pesunga|la\s+chat\s+pannu|la\s+sollunga|il\s+pesavum|only|please))/i.test(lower) ||
+    /(?:தமிழில்\s+(?:பேசவும்|மட்டும்|பேசு))/i.test(cleanText) ||
+    /^tamil$/i.test(lower) ||
+    /^தமிழ்$/i.test(cleanText);
+
+  const isExplicitHinglish =
+    /(?:speak|talk|reply|chat|switch|change|set|use)\s+(?:in\s+|to\s+|language\s+to\s+)?hinglish/i.test(lower) ||
+    /(?:hinglish\s+(?:only|please|me\s+bolo|mein\s+baat\s+karo))/i.test(lower) ||
+    /^hinglish$/i.test(lower);
+
+  const isExplicitHindi =
+    /(?:speak|talk|reply|chat|switch|change|set|use)\s+(?:in\s+|to\s+|language\s+to\s+)?hindi/i.test(lower) ||
+    /(?:hindi\s+(?:me\s+baat\s+karo|me\s+bolo|mein\s+bolo|me\s+batao|only|please))/i.test(lower) ||
+    /(?:हिंदी\s+में\s+(?:बात\s+करें|बोलो|बताओ))/i.test(cleanText) ||
+    /^hindi$/i.test(lower) ||
+    /^हिंदी$/i.test(cleanText);
+
+  const isUnlockCommand =
+    /(?:auto\s+language|detect\s+language|unlock\s+language|any\s+language)/i.test(lower);
+
+  if (isUnlockCommand) {
+    console.log(`[Router] User ${user.id} unlocked sticky language preference.`);
+    db.updateUser(user.id, { language_locked: null });
+    user.language_locked = null;
+  } else if (isExplicitEnglish) {
+    console.log(`[Router] User ${user.id} explicitly locked language to: English ('en')`);
+    db.updateUser(user.id, { language: 'en', language_locked: 'en' });
+    user.language = 'en';
+    user.language_locked = 'en';
+    return 'en';
+  } else if (isExplicitTanglish) {
+    console.log(`[Router] User ${user.id} explicitly locked language to: Tanglish ('tl')`);
+    db.updateUser(user.id, { language: 'tl', language_locked: 'tl' });
+    user.language = 'tl';
+    user.language_locked = 'tl';
+    return 'tl';
+  } else if (isExplicitTamil) {
+    const target = /[\u0B80-\u0BFF]/.test(cleanText) ? 'ta' : 'tl';
+    console.log(`[Router] User ${user.id} explicitly locked language to: Tamil ('${target}')`);
+    db.updateUser(user.id, { language: target, language_locked: target });
+    user.language = target;
+    user.language_locked = target;
+    return target;
+  } else if (isExplicitHinglish) {
+    console.log(`[Router] User ${user.id} explicitly locked language to: Hinglish ('hl')`);
+    db.updateUser(user.id, { language: 'hl', language_locked: 'hl' });
+    user.language = 'hl';
+    user.language_locked = 'hl';
+    return 'hl';
+  } else if (isExplicitHindi) {
+    const target = /[\u0900-\u097F]/.test(cleanText) ? 'hi' : 'hl';
+    console.log(`[Router] User ${user.id} explicitly locked language to: Hindi ('${target}')`);
+    db.updateUser(user.id, { language: target, language_locked: target });
+    user.language = target;
+    user.language_locked = target;
+    return target;
+  }
+
+  // 2. If user has an active language lock, respect it unless typing distinct non-Latin script
+  if (user.language_locked) {
+    return user.language_locked;
+  }
+
+  // 3. Dynamic language detection (when no sticky lock is active)
+  const hasTamilScript = /[\u0B80-\u0BFF]/.test(cleanText);
+  const hasDevanagariScript = /[\u0900-\u097F]/.test(cleanText);
+
+  let newLang = user.language || 'en';
 
   if (hasTamilScript) {
     newLang = 'ta';
   } else if (hasDevanagariScript) {
     newLang = 'hi';
   } else {
-    // Typed in Latin/English script
-    const lower = text.toLowerCase();
-    
-    // Explicit language switch request
-    if (lower.includes('tanglish') || lower.includes('tanlish')) newLang = 'tl';
-    else if (lower.includes('hinglish') || lower.includes('hinlish')) newLang = 'hl';
-    else if (lower.includes('english')) newLang = 'en';
-    else if (lower.includes('tamil')) newLang = 'tl'; // Typed "tamil" in English letters = Tanglish
-    else if (lower.includes('hindi')) newLang = 'hl'; // Typed "hindi" in English letters = Hinglish
-    else {
-      // Automatic detection for users whose stored language was set to pure script ('ta' / 'hi')
-      if (user.language === 'ta') {
-        newLang = 'tl'; // Default to Tanglish when typing in Latin script
-      } else if (user.language === 'hi') {
-        newLang = 'hl'; // Default to Hinglish when typing in Latin script
-      }
+    // Check Tanglish indicators
+    const isTanglish =
+      /\b(vanakkam|sollunga|solunga|epdi|eppadi|irukinga|irukenga|iruken|irukken|pannren|panren|pannunga|panunga|panna|pannalaam|mudiyum|mudiyala|mudiyadhu|mudila|kooda|enna|aachu|aayiduchu|sapten|saapten|saaptingala|romba|nalla|nalaiku|naalaiki|iniku|inniku|nethu|inga|anga|theriyum|therila|seri|illa|illai|podunga|pesunga|pesalam|vaanga|vanga|thambi|machan|machi|thala|anna|sapdanum|saapdanum|ennoda|ungala|ungalukku|unga|neenga|enaku|enakku|unakku|saptiya|saaptiya|valikudhu|valikuthu|aama|aamam|illaye|kudunga|solli|thanga|paniten|panniten|solren|pannikalam|polama|varala)\b/i.test(lower) ||
+      /\b(?:bro|ji|thala)\s+(?:epdi|enna|sollunga|solunga|sapten|pannren|irukken|valikudhu|valikuthu)\b/i.test(lower);
+
+    // Check Hinglish indicators
+    const isHinglish =
+      /\b(namaste|kaise|kaisa|kaisi|kya|chal|raha|rahi|rahe|hai|hain|karo|karna|karenge|karein|kiya|tha|thi|the|aaj|kal|parso|khaya|khana|kha|batao|bataiye|bolo|bhai|haan|nahi|nahin|accha|achha|theek|thik|bahut|thoda|samajh|gaya|gayi|shukriya|dhanyavad|kripya|apna|apni|mera|meri|mujhe|tumhe|aapko|hoga|hogi|humein|karega|karegi|chahiye|boliye|paani|bhook|dard)\b/i.test(lower) ||
+      /\b(?:bhai|bhaiya|ji)\s+(?:kaise|kya|batao|bolo|karna|hai)\b/i.test(lower);
+
+    // Check English indicators (sentences / questions in English)
+    const isEnglish =
+      !isTanglish &&
+      !isHinglish &&
+      /\b(can|could|will|would|should|what|when|where|why|how|which|who|workout|gym|diet|meal|food|eat|exercise|training|schedule|plan|tomorrow|today|yesterday|rest|protein|calories|weight|fat|muscle|body|coach|morning|evening|night|hours|sleep|sore|pain|hurt|drink|water|thanks|thank|please|feeling|tired|ready|start|finish|routine|target)\b/i.test(lower);
+
+    if (isTanglish) {
+      newLang = 'tl';
+    } else if (isHinglish) {
+      newLang = 'hl';
+    } else if (isEnglish) {
+      newLang = 'en';
     }
   }
 
   if (newLang !== user.language) {
-    console.log(`[Router] Dynamically updated user ${user.id} language from '${user.language}' -> '${newLang}'`);
+    console.log(`[Router] Dynamically shifted user ${user.id} language from '${user.language}' -> '${newLang}'`);
     db.updateUser(user.id, { language: newLang });
     user.language = newLang;
   }

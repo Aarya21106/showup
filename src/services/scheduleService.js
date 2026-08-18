@@ -101,8 +101,11 @@ async function handleNaturalReschedule(user, text, timezone = config.timezone) {
 
   const effectiveToday = getEffectiveWorkoutForDate(user, today, timezone);
 
+  const langMap = (gemini && gemini.LANGUAGE_NAMES) || { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish', hl: 'Hinglish' };
+  const langName = langMap[user.language] || 'English';
   const prompt = `You are the schedule intelligence engine for ShowUp fitness coach.
 User: ${user.name}
+Language Preference: ${langName}
 Today's Date: ${today} (${todayWeekday})
 Week: ${weekStart} to ${weekEnd}
 Base Timetable:
@@ -126,7 +129,9 @@ Task:
    - If the target date already has a heavy workout or creates consecutive muscle clashes (e.g. Legs on Monday and Legs on Tuesday), suggest moving to an open rest day (e.g. Wednesday or Saturday) instead.
    - Preserves program sequence.
 4. Output concise coach reply:
-   - Acknowledge rescheduling without penalties.
+   - Acknowledge rescheduling without penalties in ${langName}.
+   - In Tamil/Tanglish: ALWAYS use "neenga", "unga", "ungalukku", "sollunga", "bro" / "Ji". NEVER use "dei", "da", "di", "nee", "unakku".
+   - STRICT ZERO-EMOJI RULE.
    - Include:
      Original:
      [Source Day] → [Session Name]
@@ -143,7 +148,7 @@ Respond ONLY with strict JSON, no markdown fences:
   "target_date": "YYYY-MM-DD",
   "session_name": "string",
   "reason": "string",
-  "reply": "string (formatted coach response with Original vs Updated and weekly target preserved)"
+  "reply": "string (formatted coach response in ${langName} with Original vs Updated and weekly target preserved)"
 }`;
 
   try {

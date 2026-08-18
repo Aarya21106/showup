@@ -3,6 +3,7 @@ CREATE TABLE IF NOT EXISTS users (
   phone               TEXT UNIQUE NOT NULL,
   name                TEXT,
   language            TEXT DEFAULT 'en',
+  language_locked     TEXT DEFAULT NULL,
   activity            TEXT,
   days_per_week       INTEGER,
   checkin_time        TEXT,                 -- 'HH:MM' 24h, in the program timezone

@@ -58,6 +58,7 @@ const userColumnMigrations = [
   ['nutrition_plan', 'ALTER TABLE users ADD COLUMN nutrition_plan TEXT'],
   ['nutrition_plan_source', "ALTER TABLE users ADD COLUMN nutrition_plan_source TEXT DEFAULT 'none'"],
   ['nutrition_photo_ref', 'ALTER TABLE users ADD COLUMN nutrition_photo_ref TEXT'],
+  ['language_locked', 'ALTER TABLE users ADD COLUMN language_locked TEXT DEFAULT NULL'],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -108,7 +109,7 @@ function getOrCreateUser(phone) {
 }
 
 const USER_FIELDS = new Set([
-  'name', 'language', 'activity', 'days_per_week', 'checkin_time', 'blocker_text',
+  'name', 'language', 'language_locked', 'activity', 'days_per_week', 'checkin_time', 'blocker_text',
   'vision_text', 'commitment_score', 'onboarding_history', 'current_gesture',
   'state', 'pending_checkin_id', 'deposit_status', 'started_at', 'day_count',
   'streak', 'missed_count', 'last_prompted_date', 'last_weekly_summary_date', 'poster_path',
