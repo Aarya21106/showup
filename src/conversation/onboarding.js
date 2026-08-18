@@ -157,6 +157,7 @@ async function handleOnboarding(user, body) {
     height: user.height || null,
     weight: user.weight || null,
     days_per_week: user.days_per_week !== null && user.days_per_week !== undefined ? user.days_per_week : null,
+    timetable: user.timetable || null,
     checkin_time: user.checkin_time || null,
     diet_summary: user.diet_summary || null,
     allergy: user.allergy || null,
@@ -203,7 +204,11 @@ async function handleOnboarding(user, body) {
   };
   for (const key of Object.keys(currentProfile)) {
     if (extracted[key] !== undefined && extracted[key] !== null && extracted[key] !== '') {
-      fieldsToUpdate[key] = extracted[key];
+      if (key === 'timetable') {
+        fieldsToUpdate.timetable = typeof extracted.timetable === 'object' ? JSON.stringify(extracted.timetable) : extracted.timetable;
+      } else {
+        fieldsToUpdate[key] = extracted[key];
+      }
     }
   }
 
@@ -224,6 +229,7 @@ async function handleOnboarding(user, body) {
       Boolean(updatedUser.weight) &&
       updatedUser.days_per_week !== null &&
       updatedUser.days_per_week !== undefined &&
+      Boolean(updatedUser.timetable && updatedUser.timetable !== '{}' && updatedUser.timetable !== 'null') &&
       Boolean(updatedUser.checkin_time) &&
       Boolean(updatedUser.diet_summary) &&
       Boolean(updatedUser.allergy || updatedUser.diet_restrictions) &&

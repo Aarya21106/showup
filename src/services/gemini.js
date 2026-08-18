@@ -482,6 +482,7 @@ ${coachCtx}
    - "height": Number in centimeters (e.g. "175 cm", "5ft 9" -> 175).
    - "weight": Number in kilograms (e.g. "72 kg", "70").
    - "days_per_week": Integer 1-7 (e.g. "4 days", "5 days a week", "weekends only" -> 2).
+   - "timetable": JSON object with all 7 days ("Monday" through "Sunday"). If the user specifies their preferred workout days (e.g. "Monday and Thursday", "weekends only" -> Saturday & Sunday, or "Mon, Wed, Fri, Sat"), populate each chosen workout day with a specific routine focus matching their goal & activity (e.g. "Upper Body Hypertrophy", "Lower Body & Core", "Zone 2 Easy Run") and set all non-workout days to "Rest". If the user has NOT specified the exact days yet, set "timetable" to null.
    - "checkin_time": Workout/checkin time in 24-hour "HH:MM" format (e.g. "7:00 AM" -> "07:00", "7 PM" -> "19:00", "18:30").
    - "diet_summary": Normal day of eating summary.
    - "allergy": Food allergies (e.g. "peanuts", "dairy", "eggs", "none").
@@ -511,8 +512,11 @@ ${coachCtx}
    • Step 5 (Height & Weight missing):
      Ask: "What is your height and current weight? (e.g. 175 cm, 70 kg)"
 
-   • Step 6 (Days per week missing):
-     Ask: "How many days can you realistically train each week?"
+   • Step 6 (Days per week / Specific workout days missing or incomplete):
+     - If neither days count nor specific days are known:
+       Ask: "Which days of the week do you want to train, and how many days? (e.g. 4 days: Mon, Tue, Thu, Sat or 2 days: Saturday & Sunday)"
+     - If days_per_week is known (e.g. 2 days) but specific days of the week are not yet known:
+       Ask: "Which [N] days of the week do you prefer to train? (e.g. Saturday and Sunday, or Monday and Thursday?)"
 
    • Step 7 (Checkin time missing):
      Ask: "When do you usually train or prefer to do your workouts? (e.g. 7:00 AM, 7:00 PM)"
@@ -539,8 +543,8 @@ ${coachCtx}
    • Step 13 (Injuries / Limitations missing):
      Ask: "Any current injuries, pain, or physical limitations that affect your training? (If none, just say 'none')"
 
-   • Step 14 (ALL 13 COLLECTED -> STAGE 5 VALUE DELIVERY & TAILORED STARTING PLAN + STAGE 6 COMMITMENT PROMPT):
-     If name, goal, experience_level, activity, height, weight, days_per_week, checkin_time, equipment, diet, restrictions, obstacles, sleep, and injuries are ALL known:
+   • Step 14 (ALL 14 COLLECTED -> STAGE 5 VALUE DELIVERY & TAILORED STARTING PLAN + STAGE 6 COMMITMENT PROMPT):
+     If name, goal, experience_level, activity, height, weight, days_per_week, timetable, checkin_time, equipment, diet, restrictions, obstacles, sleep, and injuries are ALL known:
      Deliver the complete, psychologically powerful initial diagnosis & tailored starting plan:
 
      Structure:
@@ -549,7 +553,7 @@ ${coachCtx}
      Your current setup
      • Goal: [Goal]
      • Activity: [Activity & Equipment]
-     • Training: [N] days/week at [Time]
+     • Training: [N] days/week ([List chosen workout days, e.g. Saturday, Sunday]) at [Time]
      • Experience: [Level]
      • Baseline Metrics: [Weight] kg | [Height] cm (Target Calories: ~[Cals] kcal | ~[Protein]g Protein)
      • Recovery: [Hours] hrs sleep/night
@@ -563,10 +567,16 @@ ${coachCtx}
      - Walking: "Based on this, I would structure your routine around daily step volume progression, active recovery, and metabolic health."
 
      Your Weekly Schedule Split:
-     [Provide a clean, handwritten notebook style Day 1..Day N split matching their days_per_week with exact muscle focus or session target]
+     • Monday: [Focus or Rest]
+     • Tuesday: [Focus or Rest]
+     • Wednesday: [Focus or Rest]
+     • Thursday: [Focus or Rest]
+     • Friday: [Focus or Rest]
+     • Saturday: [Focus or Rest]
+     • Sunday: [Focus or Rest]
 
      Your First Targets:
-     • Train [N]×/week at [Time].
+     • Train [N]×/week at [Time] on [List workout days].
      • [Activity-specific main target].
      • Hit your daily protein target (~[Protein]g) through your normal meals.
      • Record each completed workout with photo proof and the daily gesture.
@@ -605,6 +615,15 @@ Respond strictly with a JSON object, no markdown fences:
     "height": number|null,
     "weight": number|null,
     "days_per_week": number|null,
+    "timetable": {
+      "Monday": string,
+      "Tuesday": string,
+      "Wednesday": string,
+      "Thursday": string,
+      "Friday": string,
+      "Saturday": string,
+      "Sunday": string
+    }|null,
     "checkin_time": string|null,
     "diet_summary": string|null,
     "allergy": string|null,
@@ -1458,12 +1477,47 @@ Reply ONLY in ${langName}.`;
 }
 
 /**
- * Stage 10: Generates the specific Day 1 workout or cardio session tailored to the user.
+ * Stage 10: Generates the specific Day 1 workout or schedule kickoff tailored to the user.
  */
 async function generateDay1Workout(user) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const coachCtx = buildCoachContext(user);
-  const prompt = `You are ShowUp, an elite AI fitness coach delivering Day 1 of training.
+  const scheduleService = require('./scheduleService');
+  const config = require('../config');
+  const today = require('../utils/date').todayStr(config.timezone);
+  const weekday = scheduleService.getDayName(today, config.timezone);
+  const effectiveToday = scheduleService.getEffectiveWorkoutForDate(user, today, config.timezone);
+
+  let timetable = {};
+  try {
+    timetable = user.timetable ? JSON.parse(user.timetable) : {};
+  } catch (e) {
+    timetable = {};
+  }
+
+  // Determine next workout day if today is a rest day
+  const DAYS_ORDER = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
+  const todayIdx = DAYS_ORDER.indexOf(weekday);
+  let nextWorkoutDay = null;
+  let nextFocus = null;
+
+  if (effectiveToday.isWorkout) {
+    nextWorkoutDay = weekday;
+    nextFocus = effectiveToday.focus;
+  } else {
+    for (let i = 1; i <= 7; i++) {
+      const idx = (todayIdx + i) % 7;
+      const dayName = DAYS_ORDER[idx];
+      const dayFocus = timetable[dayName];
+      if (dayFocus && dayFocus.toLowerCase() !== 'rest') {
+        nextWorkoutDay = dayName;
+        nextFocus = dayFocus;
+        break;
+      }
+    }
+  }
+
+  const prompt = `You are ShowUp, an elite AI fitness coach delivering Day 1 kickoff of training.
 ${coachCtx}
 
 User Profile:
@@ -1474,20 +1528,36 @@ User Profile:
 - Location/Equipment: ${user.workout_location || 'gym'} (${user.home_equipment || 'none'})
 - Training Time: ${user.checkin_time || '07:00'}
 - Injuries/Limitations: ${user.injuries || 'none'}
+- Today's Day: ${weekday} (${effectiveToday.isWorkout ? 'Scheduled Workout Day: ' + (effectiveToday.focus || 'Training Session') : 'Scheduled Rest Day'})
+- Next Workout Day: ${nextWorkoutDay || 'upcoming session'} (${nextFocus || 'Scheduled Routine'})
+- Weekly Timetable: ${JSON.stringify(timetable)}
 
-Task: Deliver today's Day 1 session.
+Task: Deliver the Day 1 welcome message and workout context.
 Rules:
 1. STRICT NO-EMOJIS RULE: 0 emojis.
 2. Structure:
-   You are set. Today is Day 1.
+   ${effectiveToday.isWorkout ? `
+   You are set. Today is Day 1 (${weekday}).
 
-   ${user.checkin_time || '07:00'} -- [Session Focus Name, e.g. Upper Body Hypertrophy / 3.0km Aerobic Base Run / Full Body Calisthenics / 12km Base Ride / 4,000 Steps Brisk Walk]
+   ${user.checkin_time || '07:00'} -- ${effectiveToday.focus || 'Foundation Session'}
 
    [Clean notebook routine formatted with [1], [2], [3] Exercise Name - Sets×Reps OR cardio pace/target]
 
    I will send your workout before training and ask you to log your results afterward.
 
    Your first job: show up.
+   ` : `
+   You are set. Today (${weekday}) is a Rest & Recovery Day in your weekly schedule.
+
+   Your first scheduled training session is on ${nextWorkoutDay} at ${user.checkin_time || '07:00'} -- ${nextFocus || 'Starting Session'}.
+
+   Here is a preview of your first session (${nextFocus}):
+   [Clean notebook routine formatted with [1], [2], [3] Exercise Name - Sets×Reps OR cardio pace/target]
+
+   I will send your workout reminder the evening before ${nextWorkoutDay}. (If you want to train today instead, just tell me and I will log it for today!)
+
+   Your first job: rest up and get ready for ${nextWorkoutDay}.
+   `}
 
 Reply ONLY in ${langName}.`;
 
@@ -1498,6 +1568,9 @@ Reply ONLY in ${langName}.`;
     console.warn('Fallback generating Day 1 workout:', err.message);
     const act = user.activity || 'workout';
     const time = user.checkin_time || '07:00';
+    if (!effectiveToday.isWorkout && nextWorkoutDay) {
+      return `You are set. Today (${weekday}) is a Rest Day in your schedule.\n\nYour first scheduled training session is on ${nextWorkoutDay} at ${time} -- ${nextFocus || 'Foundation Session'}.\n\nI will send your workout reminder the evening before ${nextWorkoutDay}.\n\nYour first job: rest up and get ready for ${nextWorkoutDay}!`;
+    }
     if (act === 'running') {
       return `You are set. Today is Day 1.\n\n${time} -- Aerobic Base Run\n\n[1] Outdoor Easy Run - 3.0km Zone 2 Pace\n[2] Post-Run Core & Mobility - 10 Mins\n\nI will send your workout before training and ask you to log your results afterward.\n\nYour first job: show up.`;
     } else if (act === 'cycling') {
