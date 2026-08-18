@@ -45,8 +45,16 @@ const QUESTIONS = {
   obstacles: "What usually gets in the way of your training consistency?\n\n• Time\n• Motivation\n• Consistency / Routine\n• Diet\n• Recovery / Fatigue\n• Nothing major / Something else",
   sleep: "How many hours do you normally sleep each night?",
   injuries: "Any current injuries, pain, or physical limitations that affect your training? (If none, just say 'none')",
-  commitment_ask: "Your plan is ready.\n\nOne thing I need from you: what are you committing to consistently?\n\nExample: \"I'll complete my scheduled workouts and log them honestly.\"",
+  commitment_ask: "Your plan is ready.\n\nOne thing I need from you to lock it in: what are you committing to consistently?\n\nExample: \"I will complete my scheduled workouts and log them honestly.\"",
   language: 'What language do you prefer to chat in? English, Tamil, Hindi, or Tanglish.',
+};
+
+const COMMITMENT_PROMPTS = {
+  en: 'Your plan is ready.\n\nOne thing I need from you to lock it in: what are you committing to consistently?\n\nExample: "I will complete my scheduled workouts and log them honestly."',
+  tl: 'Unga plan ready.\n\nIdha lock-in panna, ungaloda commitment statement enna?\n\nExample: "Enoda workouts-ah correct-ah mudichu honestly log pannuven."',
+  ta: 'உங்கள் திட்டம் தயாராக உள்ளது.\n\nஇதை உறுதிப்படுத்த, உங்கள் உறுதிமொழி என்ன?\n\nஉதாரணம்: "நான் எனது உடற்பயிற்சிகளை தவறாமல் முடித்து நேர்மையாக பதிவு செய்வேன்."',
+  hi: 'आपका प्लान तैयार है।\n\nइसे लॉक करने के लिए, आपका कमिटमेंट स्टेटमेंट क्या है?\n\nउदाहरण: "मैं अपनी तय कसरत पूरी करूंगा और ईमानदारी से लॉग करूंगा।',
+  hl: 'Aapka plan ready hai.\n\nIse lock karne ke liye aapka commitment statement kya hai?\n\nExample: "Main apne scheduled workouts complete karunga aur honestly log karunga."',
 };
 
 function detectLanguage(answer) {
@@ -366,6 +374,9 @@ function t(lang, key, ...args) {
 }
 
 function question(lang, key) {
+  if (key === 'commitment_ask') {
+    return COMMITMENT_PROMPTS[lang] || COMMITMENT_PROMPTS.en;
+  }
   if (QUESTIONS[key]) return QUESTIONS[key];
   const table = QUESTIONS[lang] || QUESTIONS.en;
   return table[key] || QUESTIONS.en[key] || '';

@@ -410,17 +410,42 @@ async function handleOnboarding(user, body, media) {
       Boolean(updatedUser.injuries)
     );
 
-  // Send Gemini's reply
-  if (reply) {
-    await messaging.sendText(phone, reply);
-  }
-
+  // If onboarding is complete, split plan delivery and commitment ask into 2 distinct messages
   if (isComplete) {
+    let planPart = reply;
+    let commitmentPart = null;
+
+    if (reply && reply.includes('---')) {
+      const parts = reply.split('---');
+      planPart = parts[0].trim();
+      commitmentPart = parts.slice(1).join('---').trim();
+    } else if (reply && (reply.includes('Your plan is ready') || reply.includes('One thing I need') || reply.includes('committing to consistently') || reply.includes('commitment statement'))) {
+      const splitRegex = /\n\s*(?:---+|\*\*\*+)?\s*(Your plan is ready|One thing I need from you|Unga plan ready|Aapka plan ready|உங்கள் திட்டம் தயார்)/i;
+      const match = reply.search(splitRegex);
+      if (match !== -1) {
+        planPart = reply.substring(0, match).trim();
+        commitmentPart = reply.substring(match).replace(/^[\s\-\*]+/, '').trim();
+      }
+    }
+
+    if (planPart) {
+      await messaging.sendText(phone, planPart);
+    }
+
+    // Deliver the commitment ask as a distinct, dedicated second message
+    const commitmentMsg = commitmentPart || messages.question(updatedUser.language || 'en', 'commitment_ask');
+    await messaging.sendText(phone, commitmentMsg);
+
     // Move to Stage 6: Awaiting Commitment
     db.updateUser(user.id, {
       state: states.AWAITING_COMMITMENT,
       onboarding_history: '[]',
     });
+  } else {
+    // Regular onboarding turn
+    if (reply) {
+      await messaging.sendText(phone, reply);
+    }
   }
 }
 
