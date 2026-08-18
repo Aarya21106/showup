@@ -2,8 +2,12 @@ const express = require('express');
 const admin = require('firebase-admin');
 const db = require('../db/db');
 const { initFirebase } = require('../middleware/auth');
+const { authLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
+
+// Apply auth rate limiter across all login and OTP endpoints
+router.use(authLimiter);
 
 // In-memory OTP store with 5-minute expiration
 // { [normalizedPhone]: { code: '123456', expiresAt: number } }
