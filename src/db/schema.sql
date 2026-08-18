@@ -38,6 +38,9 @@ CREATE TABLE IF NOT EXISTS users (
   diet_restrictions   TEXT,
   commitment_text     TEXT,
   accountability_mode TEXT DEFAULT 'accountability',
+  nutrition_plan      TEXT,
+  nutrition_plan_source TEXT DEFAULT 'none',
+  nutrition_photo_ref TEXT,
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

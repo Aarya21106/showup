@@ -55,6 +55,9 @@ const userColumnMigrations = [
   ['post_workout_prompt_date', 'ALTER TABLE users ADD COLUMN post_workout_prompt_date TEXT'],
   ['weekly_checkin_step', 'ALTER TABLE users ADD COLUMN weekly_checkin_step TEXT'],
   ['schedule_overrides', "ALTER TABLE users ADD COLUMN schedule_overrides TEXT DEFAULT '[]'"],
+  ['nutrition_plan', 'ALTER TABLE users ADD COLUMN nutrition_plan TEXT'],
+  ['nutrition_plan_source', "ALTER TABLE users ADD COLUMN nutrition_plan_source TEXT DEFAULT 'none'"],
+  ['nutrition_photo_ref', 'ALTER TABLE users ADD COLUMN nutrition_photo_ref TEXT'],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -116,6 +119,7 @@ const USER_FIELDS = new Set([
   'reminders_sent_log', 'sleep_hours', 'injuries', 'diet_restrictions', 'commitment_text', 'accountability_mode',
   'last_day_before_reminder_date', 'last_same_day_reminder_date', 'last_post_workout_checkin_date',
   'post_workout_prompt_date', 'weekly_checkin_step', 'schedule_overrides',
+  'nutrition_plan', 'nutrition_plan_source', 'nutrition_photo_ref',
 ]);
 
 function updateUser(id, fields) {

@@ -1,3 +1,5 @@
+const fs = require('fs');
+const path = require('path');
 const states = require('./states');
 const messages = require('./messages');
 const db = require('../db/db');
@@ -5,6 +7,32 @@ const gemini = require('../services/gemini');
 const messaging = require('../services/messaging');
 const config = require('../config');
 const { todayStr } = require('../utils/date');
+
+async function resolveImage(media) {
+  if (!media) return null;
+  if (media.testBase64) {
+    return { base64: media.testBase64, mimeType: media.mimeType || 'image/jpeg' };
+  }
+  if (media.mediaUrl) {
+    if (fs.existsSync(media.mediaUrl)) {
+      const base64 = fs.readFileSync(media.mediaUrl).toString('base64');
+      const ext = path.extname(media.mediaUrl).toLowerCase();
+      const mimeType = ext === '.png' ? 'image/png' : ext === '.webp' ? 'image/webp' : 'image/jpeg';
+      return { base64, mimeType };
+    }
+    return messaging.fetchInboundMedia(media.mediaUrl);
+  }
+  return null;
+}
+
+function promptNutritionChoice(user) {
+  return (
+    `One more thing before we kick off Day 1: let's get your nutrition locked in.\n\n` +
+    `Do you want me to create a tailored nutrition plan for you, or do you already follow your own diet plan?\n\n` +
+    `1. Create a customized AI Nutrition Plan for me\n` +
+    `2. I have my own nutrition plan (reply with text or send a photo of your diet chart)`
+  );
+}
 
 async function sendPlanAndDepositAsk(user) {
   await messaging.sendText(user.phone, messages.t(user.language, 'depositAsk', {
@@ -21,7 +49,7 @@ async function sendPlanAndDepositAsk(user) {
   }
 }
 
-async function handleOnboarding(user, body) {
+async function handleOnboarding(user, body, media) {
   const phone = user.phone;
   const text = (body || '').trim();
 
@@ -39,24 +67,15 @@ async function handleOnboarding(user, body) {
     } else if (lower === '2' || lower.includes('coach') || lower.includes('no-stake') || lower.includes('no stake') || lower.includes('free')) {
       // User chose Free Coach Mode (zero stake)
       const today = todayStr(config.timezone);
-      const updated = db.updateUser(user.id, {
+      db.updateUser(user.id, {
         accountability_mode: 'coach_only',
         deposit_status: 'free',
         started_at: today,
         day_count: 0,
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_CHOICE,
       });
       await messaging.sendText(phone, messages.t(user.language, 'coachModeConfirmed', user.checkin_time, user.activity));
-      
-      // Stage 10: Immediately deliver Day 1
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) {
-          await messaging.sendText(phone, day1);
-        }
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await messaging.sendText(phone, promptNutritionChoice(user));
       return;
     } else {
       // User asked a question about modes/terms/refunds
@@ -74,45 +93,29 @@ async function handleOnboarding(user, body) {
   if (user.state === states.AWAITING_PAYMENT) {
     if (/\bpaid\b/i.test(text)) {
       const today = todayStr(config.timezone);
-      const updated = db.updateUser(user.id, {
+      db.updateUser(user.id, {
         deposit_status: 'paid',
         started_at: today,
         day_count: 0,
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_CHOICE,
       });
       const timeStr = user.checkin_time || '08:00';
       const actStr = user.activity || 'workout';
       await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr));
-      
-      // Stage 10: Immediately deliver Day 1
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) {
-          await messaging.sendText(phone, day1);
-        }
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await messaging.sendText(phone, promptNutritionChoice(user));
       return;
     } else if (text === '2' || /\b(switch to coach mode|coach mode|free|no-stake|no stake)\b/i.test(text)) {
       // Switch from payment to free Coach Mode
       const today = todayStr(config.timezone);
-      const updated = db.updateUser(user.id, {
+      db.updateUser(user.id, {
         accountability_mode: 'coach_only',
         deposit_status: 'free',
         started_at: today,
         day_count: 0,
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_CHOICE,
       });
       await messaging.sendText(phone, messages.t(user.language, 'coachModeConfirmed', user.checkin_time, user.activity));
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) {
-          await messaging.sendText(phone, day1);
-        }
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await messaging.sendText(phone, promptNutritionChoice(user));
       return;
     } else {
       const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });
@@ -120,6 +123,174 @@ async function handleOnboarding(user, body) {
         await messaging.sendText(phone, aiReply);
       } else {
         await messaging.sendText(phone, messages.t(user.language, 'notPaidYet'));
+      }
+      return;
+    }
+  }
+
+  // Stage 9.5: Awaiting Nutrition Choice (AI Plan vs User's Own Plan)
+  if (user.state === states.AWAITING_NUTRITION_CHOICE) {
+    const hasImage = media && (media.mediaUrl || media.testBase64);
+    const lower = text.toLowerCase();
+
+    if (hasImage) {
+      // User directly sent a photo of their diet chart
+      const resolved = await resolveImage(media);
+      let planText;
+      try {
+        planText = await gemini.parseDietChartImage({
+          imageBase64: resolved.base64,
+          mimeType: resolved.mimeType,
+          user,
+        });
+      } catch (err) {
+        console.error('Error parsing diet chart image:', err);
+        planText = 'Diet Chart Received & Saved in your profile.';
+      }
+
+      const updated = db.updateUser(user.id, {
+        nutrition_plan: planText,
+        nutrition_plan_source: 'user_provided',
+        nutrition_photo_ref: media.mediaUrl || 'uploaded_photo',
+        state: states.ACTIVE,
+      });
+
+      await messaging.sendText(phone, planText);
+
+      // Deliver Day 1 kickoff
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) await messaging.sendText(phone, day1);
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
+    }
+
+    if (lower === '1' || lower.includes('create') || lower.includes('ai') || lower.includes('tailored') || lower.includes('yes') || lower.includes('make plan')) {
+      // User wants tailored AI Nutrition Plan
+      await messaging.sendText(phone, 'Building your tailored nutrition plan based on your metrics and goals...');
+      let planText;
+      try {
+        planText = await gemini.generateTailoredNutritionPlan(user);
+      } catch (err) {
+        console.error('Error generating tailored nutrition plan:', err);
+        planText = 'Your personalized nutrition target is locked in.';
+      }
+
+      const updated = db.updateUser(user.id, {
+        nutrition_plan: planText,
+        nutrition_plan_source: 'ai_generated',
+        state: states.ACTIVE,
+      });
+
+      await messaging.sendText(phone, planText);
+
+      // Deliver Day 1 kickoff
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) await messaging.sendText(phone, day1);
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
+    } else if (lower === '2' || lower.includes('own') || lower.includes('my plan') || lower.includes('already') || lower.includes('have plan') || lower.includes('custom')) {
+      // User has their own plan
+      db.updateUser(user.id, {
+        state: states.AWAITING_USER_NUTRITION_PLAN,
+      });
+      await messaging.sendText(phone, 'Great! Please share your nutrition plan.\n\nYou can text the details (e.g. what you eat for breakfast, lunch, dinner) OR send a photo of your diet chart/meal sheet.');
+      return;
+    } else if (text.length > 20 || /(breakfast|lunch|dinner|eggs|oats|rice|chicken|roti|paneer|dal|protein)/i.test(lower)) {
+      // User directly provided their diet plan text
+      let planText;
+      try {
+        planText = await gemini.parseUserProvidedDietPlan({ text, user });
+      } catch (err) {
+        console.error('Error parsing user provided diet plan:', err);
+        planText = `Your Custom Nutrition Plan is locked in:\n${text}`;
+      }
+
+      const updated = db.updateUser(user.id, {
+        nutrition_plan: planText,
+        nutrition_plan_source: 'user_provided',
+        state: states.ACTIVE,
+      });
+
+      await messaging.sendText(phone, planText);
+
+      // Deliver Day 1 kickoff
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) await messaging.sendText(phone, day1);
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
+    } else {
+      await messaging.sendText(phone, 'Reply "1" for a tailored AI Nutrition Plan, or "2" to provide your own nutrition plan (via text or photo).');
+      return;
+    }
+  }
+
+  // Stage 9.6: Awaiting User's Own Nutrition Plan (Text or Photo)
+  if (user.state === states.AWAITING_USER_NUTRITION_PLAN) {
+    const hasImage = media && (media.mediaUrl || media.testBase64);
+
+    if (hasImage) {
+      const resolved = await resolveImage(media);
+      let planText;
+      try {
+        planText = await gemini.parseDietChartImage({
+          imageBase64: resolved.base64,
+          mimeType: resolved.mimeType,
+          user,
+        });
+      } catch (err) {
+        console.error('Error parsing diet chart image:', err);
+        planText = 'Diet Chart Received & Saved in your profile.';
+      }
+
+      const updated = db.updateUser(user.id, {
+        nutrition_plan: planText,
+        nutrition_plan_source: 'user_provided',
+        nutrition_photo_ref: media.mediaUrl || 'uploaded_photo',
+        state: states.ACTIVE,
+      });
+
+      await messaging.sendText(phone, planText);
+
+      // Deliver Day 1 kickoff
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) await messaging.sendText(phone, day1);
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
+    } else {
+      let planText;
+      try {
+        planText = await gemini.parseUserProvidedDietPlan({ text, user });
+      } catch (err) {
+        console.error('Error parsing user provided diet plan:', err);
+        planText = `Your Custom Nutrition Plan is locked in:\n${text}`;
+      }
+
+      const updated = db.updateUser(user.id, {
+        nutrition_plan: planText,
+        nutrition_plan_source: 'user_provided',
+        state: states.ACTIVE,
+      });
+
+      await messaging.sendText(phone, planText);
+
+      // Deliver Day 1 kickoff
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) await messaging.sendText(phone, day1);
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
       }
       return;
     }

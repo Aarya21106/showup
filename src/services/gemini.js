@@ -929,6 +929,175 @@ Reply ONLY in ${langName}.`;
   return text.trim();
 }
 
+/**
+ * Generates a full tailored AI Nutrition Plan for the user based on baseline metrics, goal, cuisine & allergies.
+ */
+async function generateTailoredNutritionPlan(user) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const targetCalories = user.target_calories || Math.round((user.weight || 70) * 30) || 2000;
+  const fitness = require('../utils/fitness');
+  const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
+  const coachCtx = buildCoachContext(user);
+
+  const prompt = `You are ShowUp, an elite AI fitness and nutrition coach delivering a personalized nutrition plan.
+${coachCtx}
+
+User Profile:
+- Name: ${user.name}
+- Height: ${user.height || 175} cm | Weight: ${user.weight || 70} kg
+- Goal: ${user.goal || 'lean muscle gain'}
+- Activity: ${user.activity || 'gym'}
+- Calorie Target: ${targetCalories} kcal/day | Protein Target: ~${macros.proteinGrams}g
+- Cuisine / Region: ${user.cuisine_region || 'Indian'}
+- Dietary Notes & Restrictions: ${user.diet_restrictions || user.diet_summary || 'none'}
+- Allergies: ${user.allergy || 'none'}
+
+Task: Generate a clean, complete, highly practical daily nutrition plan.
+Rules:
+1. STRICT NO-EMOJIS RULE: Zero emojis.
+2. Structure:
+   Your Tailored Nutrition Plan
+
+   Daily Targets:
+   • Calories: ~${targetCalories} kcal
+   • Protein: ~${macros.proteinGrams}g
+   • Water: 3-4 Liters
+
+   Meal Breakdown:
+
+   Breakfast (~${Math.round(targetCalories * 0.25)} kcal | ~${Math.round(macros.proteinGrams * 0.25)}g P):
+   • [Specific foods with exact portions e.g. 3 whole eggs or 100g paneer, 2 slices whole wheat toast/idli]
+
+   Lunch (~${Math.round(targetCalories * 0.35)} kcal | ~${Math.round(macros.proteinGrams * 0.35)}g P):
+   • [Specific foods with exact portions e.g. 150g chicken breast / soya chunks / paneer, 1.5 cup cooked rice / 2 rotis, 1 cup dal, salad]
+
+   Evening Snack (~${Math.round(targetCalories * 0.15)} kcal | ~${Math.round(macros.proteinGrams * 0.15)}g P):
+   • [Specific foods with exact portions e.g. 1 scoop whey / 1 glass milk + 15g roasted peanuts, 1 fruit]
+
+   Dinner (~${Math.round(targetCalories * 0.25)} kcal | ~${Math.round(macros.proteinGrams * 0.25)}g P):
+   • [Specific foods with exact portions e.g. 150g fish / chicken / tofu / paneer, 2 rotis / 1 cup rice, cooked vegetables]
+
+   Key Rules:
+   • Hit your protein target (~${macros.proteinGrams}g) consistently each day.
+   • Log your meals with ShowUp anytime for instant macro verification.
+
+Reply ONLY in ${langName}.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, maxTokens: 1500 });
+    return text.trim();
+  } catch (err) {
+    console.warn('Fallback generating nutrition plan:', err.message);
+    return `Your Tailored Nutrition Plan\n\nDaily Targets:\n• Calories: ~${targetCalories} kcal\n• Protein: ~${macros.proteinGrams}g\n• Water: 3-4 Liters\n\nMeal Breakdown:\n\nBreakfast:\n• 3 Eggs (or 100g Paneer/Tofu) + 2 slices brown bread or 3 idlis\n\nLunch:\n• 150g Chicken breast / Paneer / Soya chunks + 1.5 cup rice/2 rotis + 1 bowl dal + salad\n\nEvening Snack:\n• 1 glass milk or scoop protein + handful nuts / fruit\n\nDinner:\n• 150g Protein source + 2 rotis or 1 cup rice + veggies\n\nKey Rules:\n• Hit your ~${macros.proteinGrams}g protein target daily.\n• Log your meals anytime for instant tracking.`;
+  }
+}
+
+/**
+ * Parses and structures a user-provided text diet plan.
+ */
+async function parseUserProvidedDietPlan({ text, user }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const targetCalories = user.target_calories || Math.round((user.weight || 70) * 30) || 2000;
+  const fitness = require('../utils/fitness');
+  const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
+  const coachCtx = buildCoachContext(user);
+
+  const prompt = `You are ShowUp, an elite AI fitness coach and nutritionist acknowledging and structuring a user-provided diet plan.
+${coachCtx}
+
+User Profile:
+- Name: ${user.name}
+- Goal: ${user.goal || 'muscle_gain'}
+- Calorie Target: ~${targetCalories} kcal | Protein Target: ~${macros.proteinGrams}g
+- User's Provided Diet Plan:
+"${text}"
+
+Task:
+1. Extract and clean up their provided meal schedule (Breakfast, Lunch, Snacks, Dinner).
+2. Estimate total calories and protein if foods are listed.
+3. Validate that their plan aligns with their target (~${macros.proteinGrams}g Protein).
+4. Return a clean, structured confirmation of their diet plan.
+
+Rules:
+1. STRICT NO-EMOJIS RULE: 0 emojis.
+2. Structure:
+   Your Custom Nutrition Plan is locked in.
+
+   Your Daily Meals:
+   • Breakfast: [Summary of user's breakfast]
+   • Lunch: [Summary of user's lunch]
+   • Evening Snack: [Summary of user's snack]
+   • Dinner: [Summary of user's dinner]
+
+   Coach Review:
+   • [1-2 concise observations on protein & calories alignment with their ${user.goal || 'fitness'} goal]
+   • Log your daily meals as you eat them to keep tracking consistent.
+
+Reply ONLY in ${langName}.`;
+
+  try {
+    const reply = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, maxTokens: 1200 });
+    return reply.trim();
+  } catch (err) {
+    return `Your Custom Nutrition Plan is locked in.\n\nYour Meals:\n${text}\n\nCoach Review:\n• Plan saved. Hit your daily protein target (~${macros.proteinGrams}g) consistently.\n• Log your daily meals as you eat them!`;
+  }
+}
+
+/**
+ * Analyzes a diet chart / meal sheet image and extracts the structured nutrition plan.
+ */
+async function parseDietChartImage({ imageBase64, mimeType, user }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const targetCalories = user.target_calories || Math.round((user.weight || 70) * 30) || 2000;
+  const fitness = require('../utils/fitness');
+  const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
+  const coachCtx = buildCoachContext(user);
+
+  const prompt = `You are ShowUp, an elite AI fitness coach and nutritionist reviewing an uploaded photo of a user's diet chart, meal sheet, or nutrition plan.
+${coachCtx}
+
+User Profile:
+- Name: ${user.name}
+- Goal: ${user.goal || 'muscle_gain'}
+- Calorie Target: ~${targetCalories} kcal | Protein Target: ~${macros.proteinGrams}g
+
+Task:
+1. Read and OCR the text/meals from the uploaded image.
+2. Structure the meals (Breakfast, Mid-morning, Lunch, Evening Snack, Dinner, Pre/Post workout).
+3. Extract portion sizes and key food items.
+4. Provide a clean confirmation acknowledging their custom diet chart.
+
+Rules:
+1. STRICT NO-EMOJIS RULE: 0 emojis.
+2. Structure:
+   Diet Chart Received & Saved.
+
+   Your Daily Meal Breakdown:
+   • Breakfast: [Extracted items and portions]
+   • Lunch: [Extracted items and portions]
+   • Snack / Pre-Workout: [Extracted items and portions]
+   • Dinner: [Extracted items and portions]
+
+   Coach Note:
+   • [1-2 concise sentences on nutritional balance and how to track with ShowUp]
+
+Reply ONLY in ${langName}.`;
+
+  const parts = [
+    { text: "=== Uploaded Diet Chart / Meal Sheet Image ===" },
+    { inline_data: { mime_type: mimeType || 'image/jpeg', data: imageBase64 } },
+    { text: prompt },
+  ];
+
+  try {
+    const reply = await callGemini({ parts, temperature: 0.4, maxTokens: 1500 });
+    return reply.trim();
+  } catch (err) {
+    console.warn('Fallback OCRing diet chart image:', err.message);
+    return `Diet Chart Received & Saved.\n\nI have logged your diet chart in your profile. Hit your daily protein target (~${macros.proteinGrams}g) consistently and log your daily meals as you eat them!`;
+  }
+}
+
 async function conductTimetableInterview({ currentTimetable, message, goal, activity, language, chatHistory, daysPerWeek, checkinTime, user }) {
   const langName = LANGUAGE_NAMES[language] || 'English';
   const timetableStr = currentTimetable ? JSON.stringify(currentTimetable, null, 2) : 'none';
@@ -1675,4 +1844,7 @@ module.exports = {
   generateDay1Workout,
   generateMissedWorkoutFollowup,
   generateProgressFeedback,
+  generateTailoredNutritionPlan,
+  parseUserProvidedDietPlan,
+  parseDietChartImage,
 };

@@ -10,7 +10,8 @@ const ONBOARD_STATES = new Set([
   states.ONBOARD_DAYS, states.ONBOARD_TIME, states.ONBOARD_BLOCKER,
   states.ONBOARD_VISION, states.ONBOARD_COMMITMENT,
   states.AWAITING_COMMITMENT, states.AWAITING_MODE_SELECTION,
-  states.AWAITING_PAYMENT, states.AWAITING_TIMETABLE,
+  states.AWAITING_PAYMENT, states.AWAITING_NUTRITION_CHOICE,
+  states.AWAITING_USER_NUTRITION_PLAN, states.AWAITING_TIMETABLE,
 ]);
 
 const CHECKIN_STATES = new Set([states.ACTIVE, states.AWAITING_CHECKIN_FOLLOWUP]);
@@ -190,7 +191,7 @@ async function handleIncomingMessage({ phone, body, media }) {
   }
 
   if (ONBOARD_STATES.has(user.state)) {
-    await onboarding.handleOnboarding(user, text);
+    await onboarding.handleOnboarding(user, text, media);
     return;
   }
 
