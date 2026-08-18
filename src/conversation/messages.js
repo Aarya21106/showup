@@ -33,12 +33,19 @@ function getProofInstruction(lang, activity, gestureText) {
 }
 
 const QUESTIONS = {
-  name: "Hey, I am ShowUp. I will be your daily accountability coach for the next 30 days. What should I call you?",
-  activity: "What is your main workout activity — gym, running, walking, or cycling?",
-  experience: "Are you a beginner to workouts, or do you already have experience with gym and training?",
-  goal: "What specific body or fitness goal do you want to achieve over the next 30 days? (e.g. Lean muscle gain, fat loss, athletic strength)",
-  schedule: "How many days a week can you commit, and what time of day will you do your workouts?",
-  diet_supplements: "Tell me about your current diet. Also, do you take or plan to take any supplements (such as whey protein, creatine, multivitamins, or none)?",
+  name: "Hey, I'm ShowUp — your AI fitness coach.\nI'll help you train, eat, recover, track progress, and adjust your plan as you improve.\n\nWhat should I call you?",
+  goal: "What are you primarily trying to achieve right now?\n\n• Build muscle\n• Lose fat\n• Get stronger\n• Improve fitness / endurance\n• Something else",
+  experience: "How would you describe your current training experience?\n\n• Beginner\n• Some experience\n• Experienced",
+  current_training: "What does your current training look like right now? (e.g. Gym lifting, home workouts, outdoor running, cycling, brisk walking, or starting fresh?)",
+  baseline_metrics: "What is your height and current weight? (e.g. 175 cm, 70 kg)",
+  schedule_days: "How many days can you realistically train each week?",
+  schedule_time: "When do you usually train or prefer to do your workouts? (e.g. 7:00 AM, 7:00 PM)",
+  diet_routine: "What does a normal day of eating look like for you? (Breakfast, lunch, dinner, snacks)",
+  diet_restrictions: "Any foods you avoid, allergies, dietary restrictions, or meals you absolutely don't want to change?",
+  obstacles: "What usually gets in the way of your training consistency?\n\n• Time\n• Motivation\n• Consistency / Routine\n• Diet\n• Recovery / Fatigue\n• Nothing major / Something else",
+  sleep: "How many hours do you normally sleep each night?",
+  injuries: "Any current injuries, pain, or physical limitations that affect your training? (If none, just say 'none')",
+  commitment_ask: "Your plan is ready.\n\nOne thing I need from you: what are you committing to consistently?\n\nExample: \"I'll complete my scheduled workouts and log them honestly.\"",
   language: 'What language do you prefer to chat in? English, Tamil, Hindi, or Tanglish.',
 };
 
@@ -53,42 +60,82 @@ function detectLanguage(answer) {
 
 const T = {
   en: {
-    depositAsk: ({ name, amt, days }) =>
-      `${name}, here is your 30-day pledge breakdown:\n\n` +
-      `• Trial: 14-day free access included\n` +
-      `• Refundable Deposit: ₹${amt} stake today\n` +
-      `• Platform Fee: ₹25 charged upon completion\n` +
-      `• Refund Balance: ₹275 returned upon completing your 30-day pledge\n` +
-      `• Buffer: 2 free strike days with zero penalty\n` +
-      `• Slip Penalty: ₹50 deducted per missed workout beyond free strikes\n\n` +
-      `Ready to lock in?`,
+    accountabilityIntro: ({ name }) =>
+      `ShowUp can also put something at stake.\n\n` +
+      `You choose an accountability deposit. If you complete your commitments, you get the eligible amount back. If you miss commitments under the rules you agreed to, part of the stake is forfeited.\n\n` +
+      `The goal isn't to make money from you.\n` +
+      `It's to make skipping harder than showing up.\n\n` +
+      `Your accountability setup:\n` +
+      `• Deposit: ₹${config.depositAmountInr} refundable stake\n` +
+      `• Commitment period: 30 days\n` +
+      `• Free misses: 2 buffer days (zero penalty)\n` +
+      `• Miss after free misses: ₹${config.slipPenaltyInr} per missed day\n` +
+      `• Platform fee: ₹${config.platformFeeInr} (upon completion)\n` +
+      `• Refund balance: ₹${config.fullPayoutInr} eligible for return upon completing your 30-day pledge\n` +
+      `• Verification: Daily photo + gesture proof\n` +
+      `• Exceptions: Documented illness/injury excused\n\n` +
+      `---\n` +
+      `Choose your mode:\n\n` +
+      `1. Accountability Mode (Recommended)\n` +
+      `Personalized coaching + financial commitment stake (₹${config.depositAmountInr} refundable deposit).\n\n` +
+      `2. Coach Mode (No-stake Mode)\n` +
+      `Full personalized coaching, workout tracking, and daily reminders without money at stake.\n\n` +
+      `Reply "1" for Accountability Mode or "2" for Coach Mode.`,
+    depositAsk: ({ name, amt }) =>
+      `Your accountability setup:\n\n` +
+      `• ₹${amt || config.depositAmountInr} deposit\n` +
+      `• ₹${config.fullPayoutInr} eligible for return\n` +
+      `• ₹${config.platformFeeInr} platform fee\n` +
+      `• 2 free misses\n` +
+      `• ₹${config.slipPenaltyInr} per additional qualifying miss\n\n` +
+      `Everything above is governed by the transparent rules agreed before payment.\n\n` +
+      `Deposit ₹${amt || config.depositAmountInr} to activate accountability:`,
     howItWorks: () =>
       "Daily check-in routine:\n" +
-      "1. I message you at your chosen check-in time.\n" +
+      "1. I message you before your chosen workout time with today's target.\n" +
       "2. You complete your workout and reply with one line of text and a photo showing the daily gesture.\n" +
-      "3. Show up consistently, retain your deposit, and build the habit.",
-    paymentLink: (url) => `Pay your ₹${config.depositAmountInr} refundable deposit:\n${url}\n\nOnce paid, reply with "paid" to activate Day 1.`,
-    notPaidYet: () => `Pay the ₹${config.depositAmountInr} deposit and reply "paid" to start your 30-day pledge.`,
-    paidConfirmed: (time, activity) => `Payment confirmed. Your 30-day pledge is now active.\n\nI will message you daily at ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
+      "3. Show up consistently, retain your deposit, and build unstoppable consistency.",
+    paymentLink: (url) => `Deposit link:\n${url}\n\nOnce deposited, reply with "paid" to activate Day 1.`,
+    notPaidYet: () => `Deposit ₹${config.depositAmountInr} and reply "paid" to activate Day 1, or reply "2" to switch to free Coach Mode.`,
+    coachModeConfirmed: (time, activity) => `Coach Mode activated! Zero money at stake — purely focused on building your fitness habit.\n\nI will message you daily before ${time || '08:00'} for your ${activity || 'workout'} session.`,
+    paidConfirmed: (time, activity) => `Accountability deposit confirmed. Your 30-day pledge is officially active.\n\nI will message you daily before ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
+    day1Intro: (time, activity) => `You're set. Today is Day 1.\n\nI'll send your workout before training and ask you to log your results afterward.\n\nYour first job: show up.`,
     dailyPrompt: (activity, gestureText) => `Time to show up. Send your workout update and a photo showing ${getProofInstruction('en', activity, gestureText)}.`,
     needPhoto: (gestureText, activity) => `Please send your photo proof showing ${getProofInstruction('en', activity || 'gym', gestureText)} to complete your check-in.`,
     needGesturePhoto: (gestureText, activity) => `To verify today's session, send a photo showing: ${getProofInstruction('en', activity || 'gym', gestureText)}.`,
     reminder: (gestureText, activity) => `Daily reminder: Please submit your workout proof showing ${getProofInstruction('en', activity || 'gym', gestureText)}.`,
-    'gesture_thumbs-up': 'a thumbs-up',
-    'gesture_peace-sign': 'holding up 2 fingers (peace sign)',
+    'gesture_one-finger': 'holding up 1 finger',
+    'gesture_two-fingers': 'holding up 2 fingers',
     'gesture_three-fingers': 'holding up 3 fingers',
+    'gesture_four-fingers': 'holding up 4 fingers',
+    'gesture_open-palm': 'holding up 5 fingers (open palm)',
+    'gesture_thumbs-up': 'a thumbs-up',
     'gesture_fist': 'making a fist',
-    'gesture_ok-sign': 'making an OK sign',
+    'gesture_yo-yo': 'a yo-yo / call-me hand sign 🤙',
+    'gesture_spiderman': 'a spiderman / web-shooter hand sign 🤟',
+    'gesture_peace-sign': 'a peace sign ✌️',
+    'gesture_ok-sign': 'making an OK sign 👌',
+    'gesture_rock-on': 'a rock-on hand sign 🤘',
+    'gesture_gun-finger': 'a gun finger sign 🔫',
+    'gesture_crossed-fingers': 'crossed fingers 🤞',
+    'gesture_l-shape': 'an L-shape finger sign',
     checkinAccepted: (streak, daysLeft) =>
       `Check-in verified. ${streak}-day streak. ${daysLeft} day${daysLeft === 1 ? '' : 's'} remaining.`,
     checkinFailedFinal: (reason) =>
       `Verification failed: ${reason}. Marked as a slip. Focus on showing up tomorrow.`,
-    weeklyOnTrack: (streak, daysLeft, payout) =>
-      `Weekly summary: ${streak}-day streak. Current refund balance: ₹${payout}. ${daysLeft} days remaining.`,
+    weeklyOnTrack: (streak, daysLeft, payout, discountText = '') =>
+      `Weekly summary: ${streak}-day streak (0 slips).\n\n` +
+      `• Current refund balance: ₹${payout}\n` +
+      `• Days remaining: ${daysLeft} days\n` +
+      (discountText ? `• Consistency Reward: ${discountText}\n` : '') +
+      `Keep showing up!`,
     weeklySlipped: (missed, payout) =>
       `Weekly summary: ${missed} slip${missed === 1 ? '' : 's'} recorded. Current refund balance: ₹${payout}.`,
-    finalComplete: (payout) =>
-      `30 days completed. Full pledge fulfilled. Refund balance of ₹${payout} is being processed.`,
+    finalComplete: (payout, discountText = '') =>
+      `30 days completed! Full pledge fulfilled with 100% adherence.\n\n` +
+      `• Full refund balance of ₹${payout} is being processed.\n` +
+      (discountText ? `• Consistency Reward: ${discountText}\n` : '') +
+      `You proved you are someone who shows up!`,
     finalPartial: (days, payout) =>
       `Pledge period concluded. ${days} sessions completed. Refund balance: ₹${payout}.`,
     missedYesterday: () => "No check-in received yesterday. Marked as a slip. Today is a fresh day.",
@@ -116,21 +163,36 @@ const T = {
     needPhoto: (gestureText, activity) => `Verify panna ${getProofInstruction('tl', activity || 'gym', gestureText)} kaati photo proof anupunga.`,
     needGesturePhoto: (gestureText, activity) => `Today's session verify panna, ${getProofInstruction('tl', activity || 'gym', gestureText)} kaati photo anupunga.`,
     reminder: (gestureText, activity) => `Daily reminder: ${getProofInstruction('tl', activity || 'gym', gestureText)} kaati workout proof anupunga.`,
-    'gesture_thumbs-up': 'thumbs-up sign',
-    'gesture_peace-sign': '2 fingers (peace sign)',
+    'gesture_one-finger': '1 finger showing',
+    'gesture_two-fingers': '2 fingers showing',
     'gesture_three-fingers': '3 fingers showing',
+    'gesture_four-fingers': '4 fingers showing',
+    'gesture_open-palm': '5 fingers (open palm) showing',
+    'gesture_thumbs-up': 'thumbs-up sign',
     'gesture_fist': 'making a fist',
-    'gesture_ok-sign': 'OK sign',
+    'gesture_yo-yo': 'yo-yo / call-me sign 🤙',
+    'gesture_spiderman': 'spiderman web-shooter sign 🤟',
+    'gesture_peace-sign': 'peace sign ✌️',
+    'gesture_ok-sign': 'OK sign 👌',
+    'gesture_rock-on': 'rock-on sign 🤘',
+    'gesture_gun-finger': 'gun finger sign 🔫',
+    'gesture_crossed-fingers': 'crossed fingers 🤞',
+    'gesture_l-shape': 'L-shape finger sign',
     checkinAccepted: (streak, daysLeft) =>
       `Check-in verified. ${streak}-day streak. Innum ${daysLeft} days to go.`,
     checkinFailedFinal: (reason) =>
       `Verification failed: ${reason}. Marked as a slip. Nalaiku clean start.`,
-    weeklyOnTrack: (streak, daysLeft, payout) =>
-      `Weekly summary: ${streak}-day streak. Current refund balance: ₹${payout}.`,
+    weeklyOnTrack: (streak, daysLeft, payout, discountText = '') =>
+      `Weekly summary: ${streak}-day streak (0 slips).\n\n` +
+      `• Current refund balance: ₹${payout}\n` +
+      `• Innum ${daysLeft} days to go\n` +
+      (discountText ? `• Consistency Reward: ${discountText}\n` : ''),
     weeklySlipped: (missed, payout) =>
       `Weekly summary: ${missed} slips recorded. Current refund balance: ₹${payout}.`,
-    finalComplete: (payout) =>
-      `30 days completed. Pledge fulfilled. ₹${payout} refund balance credit aagum.`,
+    finalComplete: (payout, discountText = '') =>
+      `30 days completed! Full pledge fulfilled. 100% adherence.\n\n` +
+      `• ₹${payout} refund balance credit aagum.\n` +
+      (discountText ? `• Consistency Reward: ${discountText}\n` : ''),
     finalPartial: (days, payout) =>
       `Pledge concluded. ${days} days counted. ₹${payout} refund balance.`,
     missedYesterday: () => "Nethu check-in varala. Slip-ah mark panniyachu. Iniku fresh start.",
@@ -155,21 +217,33 @@ const T = {
     needPhoto: (gestureText, activity) => `சரிபார்க்க ${getProofInstruction('ta', activity || 'gym', gestureText)} புகைப்படத்தை அனுப்பவும்.`,
     needGesturePhoto: (gestureText, activity) => `சரிபார்க்க ${getProofInstruction('ta', activity || 'gym', gestureText)} புகைப்படத்தை அனுப்பவும்.`,
     reminder: (gestureText, activity) => `நினைவூட்டல்: உங்கள் ${getProofInstruction('ta', activity || 'gym', gestureText)} புகைப்பட ஆதாரத்தை அனுப்பவும்.`,
-    'gesture_thumbs-up': 'பெருவிரல் சைகை',
-    'gesture_peace-sign': '2 விரல்கள் சைகை',
+    'gesture_one-finger': '1 விரல் சைகை',
+    'gesture_two-fingers': '2 விரல்கள் சைகை',
     'gesture_three-fingers': '3 விரல்கள் சைகை',
+    'gesture_four-fingers': '4 விரல்கள் சைகை',
+    'gesture_open-palm': '5 விரல்கள் (திறந்த உள்ளங்கை) சைகை',
+    'gesture_thumbs-up': 'பெருவிரல் சைகை',
     'gesture_fist': 'முஷ்டி சைகை',
-    'gesture_ok-sign': 'சரி சைகை',
+    'gesture_yo-yo': 'கால்-மீ சைகை 🤙',
+    'gesture_spiderman': 'ஸ்பைடர்மேன் சைகை 🤟',
+    'gesture_peace-sign': 'அமைதி (பீஸ்) சைகை ✌️',
+    'gesture_ok-sign': 'சரி (OK) சைகை 👌',
+    'gesture_rock-on': 'ராக்-ஆன் சைகை 🤘',
+    'gesture_gun-finger': 'துப்பாக்கி விரல் சைகை 🔫',
+    'gesture_crossed-fingers': 'விரல்கள் குறுக்கிட்ட சைகை 🤞',
+    'gesture_l-shape': 'L-வடிவ விரல் சைகை',
     checkinAccepted: (streak, daysLeft) =>
       `சரிபார்க்கப்பட்டது. ${streak} நாள் தொடர்ச்சி. இன்னும் ${daysLeft} நாட்கள்.`,
     checkinFailedFinal: (reason) =>
       `சரிபார்ப்பு தோல்வி: ${reason}. தவறாக குறிக்கப்பட்டது.`,
-    weeklyOnTrack: (streak, daysLeft, payout) =>
-      `வாராந்திர சுருக்கம்: ${streak} நாள் தொடர்ச்சி. இருப்பு: ₹${payout}.`,
+    weeklyOnTrack: (streak, daysLeft, payout, discountText = '') =>
+      `வாராந்திர சுருக்கம்: ${streak} நாள் தொடர்ச்சி. இருப்பு: ₹${payout}.\n` +
+      (discountText ? `வெகுமதி: ${discountText}\n` : ''),
     weeklySlipped: (missed, payout) =>
       `வாராந்திர சுருக்கம்: ${missed} தவறுகள். இருப்பு: ₹${payout}.`,
-    finalComplete: (payout) =>
-      `30 நாட்கள் முடிந்தது. திட்டம் நிறைவடைந்தது. ₹${payout} திரும்ப அனுப்பப்படுகிறது.`,
+    finalComplete: (payout, discountText = '') =>
+      `30 நாட்கள் முடிந்தது. திட்டம் நிறைவடைந்தது. ₹${payout} திரும்ப அனுப்பப்படுகிறது.\n` +
+      (discountText ? `வெகுமதி: ${discountText}\n` : ''),
     finalPartial: (days, payout) =>
       `காலம் முடிந்தது. ${days} நாட்கள் கணக்கில் எடுக்கப்பட்டன. இருப்பு: ₹${payout}.`,
     missedYesterday: () => "நேற்று வரவில்லை. தவறாக குறிக்கப்பட்டது.",
@@ -194,21 +268,33 @@ const T = {
     needPhoto: (gestureText, activity) => `पुष्टि के लिए ${getProofInstruction('hi', activity || 'gym', gestureText)} दिखाते हुए फोटो भेजें।`,
     needGesturePhoto: (gestureText, activity) => `आज के सत्र के लिए ${getProofInstruction('hi', activity || 'gym', gestureText)} दिखाते हुए फोटो भेजें।`,
     reminder: (gestureText, activity) => `रिमाइंडर: ${getProofInstruction('hi', activity || 'gym', gestureText)} दिखाते हुए वर्कआउट प्रूफ भेजें।`,
-    'gesture_thumbs-up': 'अंगूठा दिखाना',
-    'gesture_peace-sign': '2 उंगलियां दिखाना',
+    'gesture_one-finger': '1 उंगली दिखाना',
+    'gesture_two-fingers': '2 उंगलियां दिखाना',
     'gesture_three-fingers': '3 उंगलियां दिखाना',
+    'gesture_four-fingers': '4 उंगलियां दिखाना',
+    'gesture_open-palm': '5 उंगलियां (खुली हथेली) दिखाना',
+    'gesture_thumbs-up': 'अंगूठा दिखाना (थम्स-अप)',
     'gesture_fist': 'मुट्ठी बनाना',
-    'gesture_ok-sign': 'ओके का इशारा',
+    'gesture_yo-yo': 'कॉल-मी इशारा 🤙',
+    'gesture_spiderman': 'स्पाइडरमैन इशारा 🤟',
+    'gesture_peace-sign': 'पीस साइन (2 उंगलियां) ✌️',
+    'gesture_ok-sign': 'ओके का इशारा 👌',
+    'gesture_rock-on': 'रॉक-ऑन इशारा 🤘',
+    'gesture_gun-finger': 'गन फिंगर इशारा 🔫',
+    'gesture_crossed-fingers': 'क्रॉस्ड फिंगर्स 🤞',
+    'gesture_l-shape': 'L-शेप फिंगर इशारा',
     checkinAccepted: (streak, daysLeft) =>
       `सत्यापित किया गया। ${streak}-दिन की स्ट्रीक। ${daysLeft} दिन बाकी।`,
     checkinFailedFinal: (reason) =>
       `सत्यापन विफल: ${reason}। चूक के रूप में दर्ज।`,
-    weeklyOnTrack: (streak, daysLeft, payout) =>
-      `साप्ताहिक रिपोर्ट: ${streak}-दिन की स्ट्रीक। रिफंड बैलेंस: ₹${payout}।`,
+    weeklyOnTrack: (streak, daysLeft, payout, discountText = '') =>
+      `साप्ताहिक रिपोर्ट: ${streak}-दिन की स्ट्रीक। रिफंड बैलेंस: ₹${payout}।\n` +
+      (discountText ? `कंसिस्टेंसी रिवार्ड: ${discountText}\n` : ''),
     weeklySlipped: (missed, payout) =>
       `साप्ताहिक रिपोर्ट: ${missed} चूक दर्ज। रिफंड बैलेंस: ₹${payout}।`,
-    finalComplete: (payout) =>
-      `30 दिन पूरे हुए। रिफंड बैलेंस ₹${payout} प्रोसेस किया जा रहा है।`,
+    finalComplete: (payout, discountText = '') =>
+      `30 दिन पूरे हुए। रिफंड बैलेंस ₹${payout} प्रोसेस किया जा रहा है।\n` +
+      (discountText ? `कंसिस्टेंसी रिवार्ड: ${discountText}\n` : ''),
     finalPartial: (days, payout) =>
       `संकल्प अवधि समाप्त। ${days} दिन गिने गए। रिफंड बैलेंस: ₹${payout}।`,
     missedYesterday: () => "कल चेक-इन नहीं आया। चूक दर्ज की गई।",
@@ -233,21 +319,36 @@ const T = {
     needPhoto: (gestureText, activity) => `Verify karne ke liye ${getProofInstruction('hl', activity || 'gym', gestureText)} photo bhejein.`,
     needGesturePhoto: (gestureText, activity) => `Today's session verify karne ke liye ${getProofInstruction('hl', activity || 'gym', gestureText)} photo bhejein.`,
     reminder: (gestureText, activity) => `Daily reminder: ${getProofInstruction('hl', activity || 'gym', gestureText)} workout proof bhejein.`,
-    'gesture_thumbs-up': 'thumbs-up sign',
-    'gesture_peace-sign': '2 fingers (peace sign)',
+    'gesture_one-finger': '1 finger showing',
+    'gesture_two-fingers': '2 fingers showing',
     'gesture_three-fingers': '3 fingers showing',
+    'gesture_four-fingers': '4 fingers showing',
+    'gesture_open-palm': '5 fingers (open palm) showing',
+    'gesture_thumbs-up': 'thumbs-up sign',
     'gesture_fist': 'making a fist',
-    'gesture_ok-sign': 'OK sign',
+    'gesture_yo-yo': 'yo-yo / call-me sign 🤙',
+    'gesture_spiderman': 'spiderman web-shooter sign 🤟',
+    'gesture_peace-sign': 'peace sign ✌️',
+    'gesture_ok-sign': 'OK sign 👌',
+    'gesture_rock-on': 'rock-on sign 🤘',
+    'gesture_gun-finger': 'gun finger sign 🔫',
+    'gesture_crossed-fingers': 'crossed fingers 🤞',
+    'gesture_l-shape': 'L-shape finger sign',
     checkinAccepted: (streak, daysLeft) =>
       `Check-in verified. ${streak}-day streak. ${daysLeft} days remaining.`,
     checkinFailedFinal: (reason) =>
       `Verification failed: ${reason}. Slip mark ho gaya. Kal fresh start.`,
-    weeklyOnTrack: (streak, daysLeft, payout) =>
-      `Weekly summary: ${streak}-day streak. Refund balance: ₹${payout}.`,
+    weeklyOnTrack: (streak, daysLeft, payout, discountText = '') =>
+      `Weekly summary: ${streak}-day streak (0 slips).\n\n` +
+      `• Current refund balance: ₹${payout}\n` +
+      `• ${daysLeft} days remaining\n` +
+      (discountText ? `• Consistency Reward: ${discountText}\n` : ''),
     weeklySlipped: (missed, payout) =>
       `Weekly summary: ${missed} slips recorded. Refund balance: ₹${payout}.`,
-    finalComplete: (payout) =>
-      `30 days completed. Pledge fulfilled. ₹${payout} refund balance process ho raha hai.`,
+    finalComplete: (payout, discountText = '') =>
+      `30 days completed! Full pledge fulfilled with 100% adherence.\n\n` +
+      `• Refund balance ₹${payout} process ho raha hai.\n` +
+      (discountText ? `• Consistency Reward: ${discountText}\n` : ''),
     finalPartial: (days, payout) =>
       `Period concluded. ${days} days counted. ₹${payout} refund balance.`,
     missedYesterday: () => "Kal check-in nahi aaya. Slip mark kiya gaya. Aaj fresh start.",

@@ -67,10 +67,37 @@ async function finalizeAccepted(user, checkinId, reason) {
 
   db.updateUser(user.id, { streak, pending_checkin_id: null, state: states.ACTIVE, current_gesture: null });
   const daysLeft = Math.max(config.pledgeDays - user.day_count, 0);
+
+  try {
+    const feedback = await gemini.generateProgressFeedback({ ...user, streak }, reason || 'Daily session verified');
+    if (feedback) {
+      await messaging.sendText(user.phone, feedback);
+      return;
+    }
+  } catch (err) {
+    // fallback
+  }
+
   await messaging.sendText(user.phone, messages.t(user.language, 'checkinAccepted', streak, daysLeft));
 }
 
-const GESTURES = ['thumbs-up', 'peace-sign', 'three-fingers', 'fist', 'ok-sign'];
+const GESTURES = [
+  'one-finger',
+  'two-fingers',
+  'three-fingers',
+  'four-fingers',
+  'open-palm',
+  'thumbs-up',
+  'fist',
+  'yo-yo',
+  'spiderman',
+  'peace-sign',
+  'ok-sign',
+  'rock-on',
+  'gun-finger',
+  'crossed-fingers',
+  'l-shape',
+];
 function getRandomGesture() {
   return GESTURES[Math.floor(Math.random() * GESTURES.length)];
 }

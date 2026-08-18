@@ -7,7 +7,23 @@ const messaging = require('./services/messaging');
 const poster = require('./services/poster');
 const { todayStr, nowHHMM, addDaysStr } = require('./utils/date');
 
-const GESTURES = ['thumbs-up', 'peace-sign', 'three-fingers', 'fist', 'ok-sign'];
+const GESTURES = [
+  'one-finger',
+  'two-fingers',
+  'three-fingers',
+  'four-fingers',
+  'open-palm',
+  'thumbs-up',
+  'fist',
+  'yo-yo',
+  'spiderman',
+  'peace-sign',
+  'ok-sign',
+  'rock-on',
+  'gun-finger',
+  'crossed-fingers',
+  'l-shape',
+];
 function getRandomGesture() {
   return GESTURES[Math.floor(Math.random() * GESTURES.length)];
 }
@@ -56,7 +72,16 @@ function getTodayWorkoutFocus(user, todayDayName) {
   return null;
 }
 
+function isTimeOneHourBefore(checkinTime, currentTime) {
+  if (!checkinTime || !currentTime) return false;
+  const [cHour, cMin] = checkinTime.split(':').map(Number);
+  const [currHour, currMin] = currentTime.split(':').map(Number);
+  const targetHour = (cHour - 1 + 24) % 24;
+  return targetHour === currHour && cMin === currMin;
+}
+
 function isTimeTwoHoursLater(checkinTime, currentTime) {
+  if (!checkinTime || !currentTime) return false;
   const [cHour, cMin] = checkinTime.split(':').map(Number);
   const [currHour, currMin] = currentTime.split(':').map(Number);
   const targetHour = (cHour + 2) % 24;
@@ -66,27 +91,34 @@ function isTimeTwoHoursLater(checkinTime, currentTime) {
 /**
  * Runs once per user per day, right before that day's check-in prompt:
  * 1. Sweeps yesterday's program day - if there's no accepted check-in for it
- *    (missing entirely, or stuck 'pending' in an unresolved follow-up), it's a slip.
- * 2. Either sends today's prompt, or - if the pledge window has elapsed - closes
- *    the pledge out with a final tally (covers the case where day 30 itself was missed).
+ *    and it wasn't legitimately rescheduled, it counts as an unexcused miss.
+ * 2. Either sends today's prompt, or closes the pledge window.
  */
 async function sweepAndPrompt(user, today, yesterday) {
+  const scheduleService = require('./services/scheduleService');
   let missedIncrement = 0;
   let streakReset = false;
   let clearedPending = false;
 
-  const yesterdayWasWorkout = isWorkoutDay(user, yesterday, config.timezone);
-  if (user.day_count >= 1 && yesterdayWasWorkout) {
-    const existing = db.getCheckinByUserDate(user.id, yesterday);
-    if (!existing) {
-      db.createCheckin({ userId: user.id, date: yesterday, status: 'missed' });
-      missedIncrement = 1;
-      streakReset = true;
-    } else if (existing.status === 'pending') {
-      db.updateCheckin(existing.id, { status: 'missed' });
-      missedIncrement = 1;
-      streakReset = true;
-      if (user.pending_checkin_id === existing.id) clearedPending = true;
+  const yesterdayEffective = scheduleService.getEffectiveWorkoutForDate(user, yesterday, config.timezone);
+  
+  if (user.day_count >= 1 && yesterdayEffective.isWorkout && !yesterdayEffective.isRescheduled) {
+    // Check if there was an active override that moved yesterday's session
+    const overrides = db.getScheduleOverridesForWeek(user.id, yesterday, today);
+    const movedAway = overrides.find(o => o.original_date === yesterday && o.rescheduled_date > yesterday);
+    
+    if (!movedAway) {
+      const existing = db.getCheckinByUserDate(user.id, yesterday);
+      if (!existing) {
+        db.createCheckin({ userId: user.id, date: yesterday, status: 'missed' });
+        missedIncrement = 1;
+        streakReset = true;
+      } else if (existing.status === 'pending') {
+        db.updateCheckin(existing.id, { status: 'missed' });
+        missedIncrement = 1;
+        streakReset = true;
+        if (user.pending_checkin_id === existing.id) clearedPending = true;
+      }
     }
   }
 
@@ -96,13 +128,31 @@ async function sweepAndPrompt(user, today, yesterday) {
   const pendingCheckinId = clearedPending ? null : user.pending_checkin_id;
 
   if (missedIncrement) {
-    await messaging.sendText(user.phone, messages.t(user.language, 'missedYesterday'));
+    const missedMsg =
+      `You missed yesterday's session.\n\n` +
+      `One missed workout does not break progress. Repeated misses do.\n\n` +
+      `What got in the way?\n` +
+      `• Time / Schedule\n` +
+      `• Energy / Fatigue\n` +
+      `• Motivation\n` +
+      `• Something came up\n` +
+      `• Other`;
+    await messaging.sendText(user.phone, missedMsg);
   }
 
   if (dayCount > config.pledgeDays) {
-    const { calculatePledgePayout } = require('./utils/payout');
+    const { calculatePledgePayout, calculateSubscriptionDiscount } = require('./utils/payout');
     const { payout } = calculatePledgePayout(user, missed);
     const completedDays = config.pledgeDays - missed;
+    const cleanWeeks = Math.floor(completedDays / 7);
+    const discount = calculateSubscriptionDiscount(cleanWeeks, user.tier === 'pro_350' || user.tier === 'pro_120');
+
+    let discountText = '';
+    if (missed === 0) {
+      discountText = `Unlocked maximum ₹40/mo discount on your Month-2 subscription! (Standard: ₹79/mo down from ₹119 | Pro: ₹199/mo down from ₹239)`;
+    } else if (cleanWeeks > 0) {
+      discountText = `Unlocked ₹${discount.totalDiscount}/mo discount on your Month-2 subscription (Standard: ₹${119 - discount.totalDiscount}/mo | Pro: ₹${239 - discount.totalDiscount}/mo)`;
+    }
 
     db.updateUser(user.id, {
       state: states.COMPLETED, streak, missed_count: missed, day_count: dayCount,
@@ -115,16 +165,15 @@ async function sweepAndPrompt(user, today, yesterday) {
     });
     await messaging.sendMedia(user.phone, `${user.name} — final tally.`, publicUrl);
     const msg = missed === 0
-      ? messages.t(user.language, 'finalComplete', payout)
+      ? messages.t(user.language, 'finalComplete', payout, discountText)
       : messages.t(user.language, 'finalPartial', completedDays, payout);
     await messaging.sendText(user.phone, msg);
     return;
   }
 
-  const todayDayName = getDayName(today, config.timezone);
-  const focusToday = getTodayWorkoutFocus(user, todayDayName);
+  const effectiveToday = scheduleService.getEffectiveWorkoutForDate(user, today, config.timezone);
 
-  if (focusToday) {
+  if (effectiveToday.isWorkout) {
     const gesture = getRandomGesture();
     db.updateUser(user.id, {
       streak, missed_count: missed, day_count: dayCount, last_prompted_date: today,
@@ -135,9 +184,8 @@ async function sweepAndPrompt(user, today, yesterday) {
     let reminderText;
     try {
       const gemini = require('./services/gemini');
-      reminderText = await gemini.generateWorkoutReminder(user, focusToday);
+      reminderText = await gemini.generateWorkoutReminder(user, effectiveToday.focus);
     } catch (err) {
-      console.error('Error generating workout reminder:', err);
       const gestureText = messages.t(user.language, `gesture_${gesture}`);
       reminderText = messages.t(user.language, 'dailyPrompt', user.activity, gestureText);
     }
@@ -148,19 +196,19 @@ async function sweepAndPrompt(user, today, yesterday) {
       state: states.ACTIVE, pending_checkin_id: pendingCheckinId, current_gesture: null,
       workout_reminded_date: null, workout_acknowledged_date: null,
     });
-    const restMsg = `Today is a Rest Day in your schedule. Recover well! Drink plenty of water and eat clean. Day ${dayCount}/${config.pledgeDays}.`;
+    const restMsg = `Today is a Rest Day in your schedule (${effectiveToday.focus}). Recover well! Drink plenty of water and eat clean. Day ${dayCount}/${config.pledgeDays}.`;
     await messaging.sendText(user.phone, restMsg);
   }
 }
 
 async function triggerUserReminder(user, reminderType = 'workout') {
   const gemini = require('./services/gemini');
+  const scheduleService = require('./services/scheduleService');
   const today = todayStr(config.timezone);
-  const todayDayName = getDayName(today, config.timezone);
-  const focusToday = getTodayWorkoutFocus(user, todayDayName);
+  const effectiveToday = scheduleService.getEffectiveWorkoutForDate(user, today, config.timezone);
 
   if (reminderType === 'workout') {
-    if (focusToday) {
+    if (effectiveToday.isWorkout) {
       let gesture = user.current_gesture;
       if (!gesture) {
         gesture = getRandomGesture();
@@ -170,50 +218,43 @@ async function triggerUserReminder(user, reminderType = 'workout') {
       }
       let reminderText;
       try {
-        reminderText = await gemini.generateWorkoutReminder(user, focusToday);
+        reminderText = await gemini.generateWorkoutReminder(user, effectiveToday.focus);
       } catch (err) {
         const gestureText = messages.t(user.language, `gesture_${gesture}`);
         reminderText = messages.t(user.language, 'dailyPrompt', user.activity, gestureText);
       }
       await messaging.sendText(user.phone, reminderText);
     } else {
-      const restMsg = `Today is a Rest Day in your schedule. Recover well! Rest is when your muscles rebuild and grow. Stay hydrated and eat clean. Day ${user.day_count}/${config.pledgeDays}.`;
+      const restMsg = `Today is a Rest Day in your schedule (${effectiveToday.focus}). Recover well! Rest is when your muscles rebuild and grow. Stay hydrated and eat clean. Day ${user.day_count}/${config.pledgeDays}.`;
       await messaging.sendText(user.phone, restMsg);
     }
     return;
   }
 
-  if (reminderType === 'nudge') {
-    const focus = focusToday || user.target_muscle || 'today\'s session';
-    const msg = `Hey ${user.name}! Just checking in on your ${focus} workout. Have you laced up or are you slipping? Send your photo proof to lock in your check-in!`;
-    await messaging.sendText(user.phone, msg);
-    return;
-  }
-
-  if (reminderType === 'hydration' || reminderType === 'water') {
+  if (reminderType === 'water') {
     let msg;
     try {
       msg = await gemini.generateHydrationReminder(user);
     } catch (e) {
-      msg = `Hydration check, ${user.name}! Drink a large glass of water now. Aim for 3 to 4 liters today to keep muscle recovery and energy high.`;
+      msg = `Hydration check, ${user.name}! Keep a bottle near you and drink 500ml water now. Consistent hydration keeps performance and recovery high!`;
     }
     await messaging.sendText(user.phone, msg);
     return;
   }
 
-  if (reminderType.startsWith('meal') || reminderType === 'breakfast' || reminderType === 'lunch' || reminderType === 'dinner') {
-    const mealName = reminderType.includes('breakfast') ? 'breakfast' : reminderType.includes('dinner') ? 'dinner' : 'lunch';
+  if (reminderType === 'meal_breakfast' || reminderType === 'meal_lunch' || reminderType === 'meal_dinner') {
+    const mealType = reminderType.replace('meal_', '');
     let msg;
     try {
-      msg = await gemini.generateMealReminder(user, mealName);
+      msg = await gemini.generateMealReminder(user, mealType);
     } catch (e) {
-      msg = `Meal check, ${user.name}! Ensure your ${mealName} has enough protein. Reply with what you ate to log your calories!`;
+      msg = `Meal check-in (${mealType}), ${user.name}! Remember your daily protein target (~${user.weight ? Math.round(user.weight * 1.8) : 130}g). Log what you ate!`;
     }
     await messaging.sendText(user.phone, msg);
     return;
   }
 
-  if (reminderType === 'sleep' || reminderType === 'recovery') {
+  if (reminderType === 'sleep') {
     let msg;
     try {
       msg = await gemini.generateSleepRecoveryReminder(user);
@@ -235,7 +276,9 @@ function tick() {
   const currentTime = nowHHMM(config.timezone);
   const today = todayStr(config.timezone);
   const yesterday = addDaysStr(today, -1);
+  const tomorrow = addDaysStr(today, 1);
   const gemini = require('./services/gemini');
+  const scheduleService = require('./services/scheduleService');
 
   for (const user of db.getActiveUsers()) {
     // 1. Daily scheduled workout or rest prompt
@@ -245,28 +288,54 @@ function tick() {
       });
     }
 
-    const todayDayName = getDayName(today, config.timezone);
-    const focusToday = getTodayWorkoutFocus(user, todayDayName);
+    const effectiveToday = scheduleService.getEffectiveWorkoutForDate(user, today, config.timezone);
+    const effectiveTomorrow = scheduleService.getEffectiveWorkoutForDate(user, tomorrow, config.timezone);
 
-    // 2. 2-Hour post check-in reminder nudge
-    if (focusToday && user.workout_reminded_date === today) {
-      if (isTimeTwoHoursLater(user.checkin_time, currentTime)) {
-        const checkinToday = db.getCheckinByUserDate(user.id, today);
-        const hasCheckedIn = checkinToday && checkinToday.status !== 'missed' && checkinToday.status !== 'failed';
-        if (!hasCheckedIn) {
-          if (user.workout_acknowledged_date !== today) {
-            const msg = `Hey ${user.name}! You missed your workout reminder for ${focusToday} at ${user.checkin_time} and didn't reply. Are you lacing up or slipping? Get moving!`;
-            messaging.sendText(user.phone, msg).catch((err) => console.error(err));
-          } else {
-            const msg = `Hey ${user.name}! You mentioned you were heading out for ${focusToday}, but I haven't received your check-in proof yet. Send your photo + text proof now to log it!`;
-            messaging.sendText(user.phone, msg).catch((err) => console.error(err));
-          }
-        }
+    // 2. Day-Before Workout Reminder (at 20:00)
+    if (currentTime === '20:00') {
+      if (effectiveTomorrow.isWorkout && user.last_day_before_reminder_date !== tomorrow) {
+        const timeStr = user.checkin_time || '07:00';
+        const msg =
+          `Tomorrow is a training day.\n\n` +
+          `You have your ${effectiveTomorrow.focus} workout scheduled for ${timeStr}.\n\n` +
+          `Plan your day around it.`;
+        messaging.sendText(user.phone, msg).catch(e => console.error(e));
+        db.updateUser(user.id, { last_day_before_reminder_date: tomorrow });
       }
     }
 
-    // 3. 3-Hour post check-in gesture reminder
-    if (focusToday && user.current_gesture && user.last_prompted_date === today) {
+    // 3. Same-Day Pre-Workout Reminder (1 hour before training time)
+    if (effectiveToday.isWorkout && isTimeOneHourBefore(user.checkin_time, currentTime)) {
+      if (user.last_same_day_reminder_date !== today) {
+        const timeStr = user.checkin_time || '07:00';
+        const msg =
+          `Training today — ${timeStr}.\n\n` +
+          `${effectiveToday.focus}.\n\n` +
+          `Your session is ready. I'll check in after your workout.`;
+        messaging.sendText(user.phone, msg).catch(e => console.error(e));
+        db.updateUser(user.id, { last_same_day_reminder_date: today });
+      }
+    }
+
+    // 4. Post-Workout Check-in (2 hours after scheduled time)
+    if (effectiveToday.isWorkout && isTimeTwoHoursLater(user.checkin_time, currentTime)) {
+      const checkinToday = db.getCheckinByUserDate(user.id, today);
+      const hasCheckedIn = checkinToday && checkinToday.status === 'accepted';
+      if (!hasCheckedIn && user.post_workout_prompt_date !== today) {
+        const msg =
+          `How did today's workout go?\n\n` +
+          `1. Completed\n` +
+          `2. Modified\n` +
+          `3. Couldn't train\n` +
+          `4. Rescheduled\n\n` +
+          `Reply with your choice or send your check-in proof!`;
+        messaging.sendText(user.phone, msg).catch(e => console.error(e));
+        db.updateUser(user.id, { post_workout_prompt_date: today });
+      }
+    }
+
+    // 5. 3-Hour post check-in gesture reminder
+    if (effectiveToday.isWorkout && user.current_gesture && user.last_prompted_date === today) {
       if (isTimeThreeHoursLater(user.checkin_time, currentTime)) {
         const checkinToday = db.getCheckinByUserDate(user.id, today);
         const hasCheckedIn = checkinToday && checkinToday.status !== 'missed' && checkinToday.status !== 'failed';
@@ -279,7 +348,7 @@ function tick() {
       }
     }
 
-    // 4. Hydration alerts (10:00, 14:00, 18:00, 21:00)
+    // 6. Hydration alerts (10:00, 14:00, 18:00, 21:00)
     const waterHours = ['10:00', '14:00', '18:00', '21:00'];
     if (waterHours.includes(currentTime)) {
       const [lastDate, sentHoursStr] = (user.water_reminders_sent || '').split(':');
@@ -297,7 +366,7 @@ function tick() {
       }
     }
 
-    // 5. Meal & Nutrition Check-in (09:00 Breakfast, 13:30 Lunch, 20:30 Dinner)
+    // 7. Meal & Nutrition Check-in (09:00 Breakfast, 13:30 Lunch, 20:30 Dinner)
     const mealSchedule = { '09:00': 'breakfast', '13:30': 'lunch', '20:30': 'dinner' };
     if (mealSchedule[currentTime]) {
       const mealType = mealSchedule[currentTime];
@@ -318,7 +387,7 @@ function tick() {
       }
     }
 
-    // 6. Sleep & Nightly Recovery Reminder (22:30)
+    // 8. Sleep & Nightly Recovery Reminder (22:30)
     if (currentTime === '22:30') {
       let remindersLog = {};
       try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
@@ -335,11 +404,26 @@ function tick() {
         db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
       }
     }
+
+    // 9. Weekly Structured Review (Sunday at 18:00)
+    const weekday = scheduleService.getDayName(today, config.timezone);
+    if (weekday === 'Sunday' && currentTime === '18:00' && user.last_weekly_summary_date !== today) {
+      const adherence = scheduleService.getWeeklyAdherence(user, today, config.timezone);
+      const msg =
+        `Weekly Check-In\n\n` +
+        `This week's progress: ${adherence.completed}/${adherence.target} workouts completed (${adherence.rescheduled} rescheduled, ${adherence.missed} missed).\n\n` +
+        `1. How much do you weigh this morning?\n` +
+        `2. How did your training go this week? (Completed as planned / Mostly completed / Struggled)\n` +
+        `3. How was your average sleep & recovery?\n` +
+        `4. Any noticeable changes in strength, measurements, appearance, energy, or appetite?`;
+      messaging.sendText(user.phone, msg).catch(e => console.error(e));
+      db.updateUser(user.id, { last_weekly_summary_date: today });
+    }
   }
 }
 
 async function sendWeeklySummaries() {
-  const { calculatePledgePayout } = require('./utils/payout');
+  const { calculatePledgePayout, calculateSubscriptionDiscount } = require('./utils/payout');
   const today = todayStr(config.timezone);
   for (const user of db.getActiveUsers()) {
     if (user.last_weekly_summary_date === today) continue;
@@ -347,10 +431,17 @@ async function sendWeeklySummaries() {
       const missed = user.missed_count;
       const { payout } = calculatePledgePayout(user, missed);
       const daysLeft = Math.max(config.pledgeDays - user.day_count, 0);
+      const cleanWeeks = Math.floor(user.day_count / 7);
+      const discount = calculateSubscriptionDiscount(cleanWeeks, user.tier === 'pro_350' || user.tier === 'pro_120');
+
+      let discountText = '';
+      if (missed === 0 && cleanWeeks > 0) {
+        discountText = `Unlocked ₹${discount.totalDiscount}/mo off Month-2 subscription (Standard: ₹${119 - discount.totalDiscount}/mo | Pro: ₹${239 - discount.totalDiscount}/mo)`;
+      }
 
       db.updateUser(user.id, { last_weekly_summary_date: today });
       const msg = missed === 0
-        ? messages.t(user.language, 'weeklyOnTrack', user.streak, daysLeft, payout)
+        ? messages.t(user.language, 'weeklyOnTrack', user.streak, daysLeft, payout, discountText)
         : messages.t(user.language, 'weeklySlipped', missed, payout);
       await messaging.sendText(user.phone, msg);
     } catch (err) {
@@ -488,5 +579,5 @@ function startScheduler() {
   console.log(`Scheduler started (timezone: ${config.timezone}) [memory layer: nightly 23:30, weekly-prefs Sun 22:00]`);
 }
 
-module.exports = { startScheduler, tick, triggerUserReminder, sendWeeklySummaries, runNightlySummaries, checkFollowUpNudges, runWeeklyPersonalization };
+module.exports = { startScheduler, tick, triggerUserReminder, sendWeeklySummaries, runNightlySummaries, checkFollowUpNudges, runWeeklyPersonalization, sweepAndPrompt };
 

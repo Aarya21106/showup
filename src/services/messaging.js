@@ -31,6 +31,11 @@ async function sendText(to, body) {
   } catch (err) {
     console.error('[Messaging] Error queuing text message:', err);
   }
+  // If in mock WhatsApp / terminal simulator / test mode, log bot replies to console
+  if (process.env.MOCK_WHATSAPP === 'true' || process.env.SIMULATE_MODE === 'true' || process.env.NODE_ENV === 'test') {
+    console.log(`\n🤖 ShowUp:\n${body}\n`);
+  }
+
   return { success: true };
 }
 
@@ -57,6 +62,12 @@ async function sendMedia(to, body, mediaUrl) {
   } catch (err) {
     console.error('[Messaging] Error queuing media message:', err);
   }
+
+  // If in mock WhatsApp / terminal simulator / test mode, log bot replies to console
+  if (process.env.MOCK_WHATSAPP === 'true' || process.env.SIMULATE_MODE === 'true' || process.env.NODE_ENV === 'test') {
+    console.log(`\n🤖 ShowUp [Media: ${mediaUrl}]:\n${body}\n`);
+  }
+
   return { success: true };
 }
 

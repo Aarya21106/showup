@@ -21,6 +21,24 @@ interface CameraProofSheetProps {
   onSubmitProof: (imageBase64: string, caption: string, imageUri: string) => Promise<void>;
 }
 
+const GESTURE_EMOJIS: Record<string, string> = {
+  'one-finger': '☝️',
+  'two-fingers': '✌️',
+  'three-fingers': '🖐️',
+  'four-fingers': '✋',
+  'open-palm': '✋',
+  'thumbs-up': '👍',
+  'fist': '✊',
+  'yo-yo': '🤙',
+  'spiderman': '🤟',
+  'peace-sign': '✌️',
+  'ok-sign': '👌',
+  'rock-on': '🤘',
+  'gun-finger': '🔫',
+  'crossed-fingers': '🤞',
+  'l-shape': '📐',
+};
+
 export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
   visible,
   onClose,
@@ -31,9 +49,9 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
   const [caption, setCaption] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  const gestureName = profile?.current_gesture
-    ? profile.current_gesture.replace('-', ' ').toUpperCase()
-    : 'PEACE SIGN';
+  const rawGesture = profile?.current_gesture || 'peace-sign';
+  const gestureName = rawGesture.replace('-', ' ').toUpperCase();
+  const gestureEmoji = GESTURE_EMOJIS[rawGesture] || '✌️';
 
   const handleTakePic = async () => {
     try {
@@ -128,7 +146,7 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
             {/* Gesture / Requirement Banner */}
             <View style={styles.gestureBanner}>
               <View style={styles.gestureIconCircle}>
-                <Text style={styles.gestureEmoji}>✌️</Text>
+                <Text style={styles.gestureEmoji}>{gestureEmoji}</Text>
               </View>
               <View style={styles.gestureContent}>
                 <Text style={styles.gestureTitle}>TODAY'S GESTURE: {gestureName}</Text>

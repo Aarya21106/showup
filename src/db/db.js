@@ -44,6 +44,17 @@ const userColumnMigrations = [
   ['workout_location', "ALTER TABLE users ADD COLUMN workout_location TEXT DEFAULT 'gym'"],
   ['home_equipment', "ALTER TABLE users ADD COLUMN home_equipment TEXT DEFAULT 'none'"],
   ['reminders_sent_log', "ALTER TABLE users ADD COLUMN reminders_sent_log TEXT DEFAULT '{}'"],
+  ['sleep_hours', 'ALTER TABLE users ADD COLUMN sleep_hours REAL'],
+  ['injuries', 'ALTER TABLE users ADD COLUMN injuries TEXT'],
+  ['diet_restrictions', 'ALTER TABLE users ADD COLUMN diet_restrictions TEXT'],
+  ['commitment_text', 'ALTER TABLE users ADD COLUMN commitment_text TEXT'],
+  ['accountability_mode', "ALTER TABLE users ADD COLUMN accountability_mode TEXT DEFAULT 'accountability'"],
+  ['last_day_before_reminder_date', 'ALTER TABLE users ADD COLUMN last_day_before_reminder_date TEXT'],
+  ['last_same_day_reminder_date', 'ALTER TABLE users ADD COLUMN last_same_day_reminder_date TEXT'],
+  ['last_post_workout_checkin_date', 'ALTER TABLE users ADD COLUMN last_post_workout_checkin_date TEXT'],
+  ['post_workout_prompt_date', 'ALTER TABLE users ADD COLUMN post_workout_prompt_date TEXT'],
+  ['weekly_checkin_step', 'ALTER TABLE users ADD COLUMN weekly_checkin_step TEXT'],
+  ['schedule_overrides', "ALTER TABLE users ADD COLUMN schedule_overrides TEXT DEFAULT '[]'"],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -102,7 +113,9 @@ const USER_FIELDS = new Set([
   'timetable', 'goal', 'water_reminders_sent', 'workout_reminded_date', 'workout_acknowledged_date',
   'profile_json', 'cuisine_region', 'fitness_app', 'weekly_goal_distance_km', 'last_goal_review_date', 'weekly_plan',
   'firebase_uid', 'experience_level', 'supplements', 'diet_summary', 'workout_location', 'home_equipment',
-  'reminders_sent_log',
+  'reminders_sent_log', 'sleep_hours', 'injuries', 'diet_restrictions', 'commitment_text', 'accountability_mode',
+  'last_day_before_reminder_date', 'last_same_day_reminder_date', 'last_post_workout_checkin_date',
+  'post_workout_prompt_date', 'weekly_checkin_step', 'schedule_overrides',
 ]);
 
 function updateUser(id, fields) {
@@ -327,6 +340,131 @@ function markMessagesDelivered(userId, messageIds) {
   ).run(userId, ...messageIds);
 }
 
+// ── Workout, Weight, Schedule Overrides & Weekly Reviews ──
+
+function logWorkout(userId, { date, exerciseName, sets, reps, weightKg, rpe, status, notes }) {
+  const info = db.prepare(
+    `INSERT INTO workout_logs (user_id, date, exercise_name, sets, reps, weight_kg, rpe, status, notes)
+     VALUES (@userId, @date, @exerciseName, @sets, @reps, @weightKg, @rpe, @status, @notes)`
+  ).run({
+    userId,
+    date,
+    exerciseName,
+    sets: sets || null,
+    reps: reps || null,
+    weightKg: weightKg || null,
+    rpe: rpe || null,
+    status: status || 'completed',
+    notes: notes || null,
+  });
+  return info.lastInsertRowid;
+}
+
+function getRecentWorkoutLogs(userId, limit = 15) {
+  return db.prepare(
+    'SELECT * FROM workout_logs WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT ?'
+  ).all(userId, limit);
+}
+
+function getWorkoutLogsByDate(userId, date) {
+  return db.prepare(
+    'SELECT * FROM workout_logs WHERE user_id = ? AND date = ? ORDER BY id ASC'
+  ).all(userId, date);
+}
+
+function logWeight(userId, weight, date, notes) {
+  const info = db.prepare(
+    `INSERT INTO weight_logs (user_id, date, weight, notes)
+     VALUES (@userId, @date, @weight, @notes)`
+  ).run({
+    userId,
+    date,
+    weight,
+    notes: notes || null,
+  });
+  updateUser(userId, { weight });
+  return info.lastInsertRowid;
+}
+
+function getWeightLogs(userId, limit = 15) {
+  return db.prepare(
+    'SELECT * FROM weight_logs WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT ?'
+  ).all(userId, limit);
+}
+
+function getLatestWeight(userId) {
+  const entry = db.prepare(
+    'SELECT weight, date FROM weight_logs WHERE user_id = ? ORDER BY date DESC, id DESC LIMIT 1'
+  ).get(userId);
+  if (entry) return entry.weight;
+  const user = getUserById(userId);
+  return user ? user.weight : null;
+}
+
+function createScheduleOverride(userId, { originalDate, rescheduledDate, sessionName, reason, status }) {
+  const info = db.prepare(
+    `INSERT INTO workout_schedule_overrides (user_id, original_date, rescheduled_date, session_name, status, reason)
+     VALUES (@userId, @originalDate, @rescheduledDate, @sessionName, @status, @reason)`
+  ).run({
+    userId,
+    originalDate,
+    rescheduledDate,
+    sessionName,
+    status: status || 'rescheduled',
+    reason: reason || null,
+  });
+  return info.lastInsertRowid;
+}
+
+function getScheduleOverridesForWeek(userId, startDate, endDate) {
+  return db.prepare(
+    `SELECT * FROM workout_schedule_overrides
+     WHERE user_id = ? AND (
+       (original_date >= ? AND original_date <= ?) OR
+       (rescheduled_date >= ? AND rescheduled_date <= ?)
+     ) ORDER BY rescheduled_date ASC, id ASC`
+  ).all(userId, startDate, endDate, startDate, endDate);
+}
+
+function getScheduleOverrideForDate(userId, date) {
+  return db.prepare(
+    'SELECT * FROM workout_schedule_overrides WHERE user_id = ? AND rescheduled_date = ? ORDER BY id DESC LIMIT 1'
+  ).get(userId, date);
+}
+
+function updateScheduleOverride(overrideId, fields) {
+  const allowed = ['status', 'rescheduled_date', 'reason', 'session_name'];
+  const keys = Object.keys(fields).filter(k => allowed.includes(k));
+  if (keys.length === 0) return;
+  const setClause = keys.map(k => `${k} = @${k}`).join(', ');
+  db.prepare(`UPDATE workout_schedule_overrides SET ${setClause} WHERE id = @overrideId`).run({ ...fields, overrideId });
+}
+
+function createWeeklyReview(userId, data) {
+  const info = db.prepare(
+    `INSERT INTO weekly_reviews (user_id, week_number, start_date, end_date, weight, workouts_completed, workouts_target, sleep_avg, recovery_rating, summary)
+     VALUES (@userId, @weekNumber, @startDate, @endDate, @weight, @workoutsCompleted, @workoutsTarget, @sleepAvg, @recoveryRating, @summary)`
+  ).run({
+    userId,
+    weekNumber: data.weekNumber || 1,
+    startDate: data.startDate || null,
+    endDate: data.endDate || null,
+    weight: data.weight || null,
+    workoutsCompleted: data.workoutsCompleted || 0,
+    workoutsTarget: data.workoutsTarget || 0,
+    sleepAvg: data.sleepAvg || null,
+    recoveryRating: data.recoveryRating || null,
+    summary: data.summary || null,
+  });
+  return info.lastInsertRowid;
+}
+
+function getWeeklyReviews(userId, limit = 5) {
+  return db.prepare(
+    'SELECT * FROM weekly_reviews WHERE user_id = ? ORDER BY week_number DESC, id DESC LIMIT ?'
+  ).all(userId, limit);
+}
+
 module.exports = {
   db,
   getUserByPhone,
@@ -364,4 +502,16 @@ module.exports = {
   queueOutboxMessage,
   getPendingMessages,
   markMessagesDelivered,
+  logWorkout,
+  getRecentWorkoutLogs,
+  getWorkoutLogsByDate,
+  logWeight,
+  getWeightLogs,
+  getLatestWeight,
+  createScheduleOverride,
+  getScheduleOverridesForWeek,
+  getScheduleOverrideForDate,
+  updateScheduleOverride,
+  createWeeklyReview,
+  getWeeklyReviews,
 };

@@ -74,4 +74,14 @@ async function handleDietQuery(user, text) {
   }
 }
 
-module.exports = { handleDietLog, handleDietQuery };
+async function handleDietDeviation(user, text) {
+  try {
+    const reply = await gemini.generateDietDeviationGuidance(user, text);
+    await messaging.sendText(user.phone, reply);
+  } catch (err) {
+    console.error('Error handling diet deviation:', err);
+    await messaging.sendText(user.phone, "One off-plan meal does not break your progress. Zero penalty on your pledge. Stay hydrated, hit your protein for the remaining meals, and let's keep momentum high!");
+  }
+}
+
+module.exports = { handleDietLog, handleDietQuery, handleDietDeviation };

@@ -8,8 +8,9 @@ const checkin = require('./checkin');
 const ONBOARD_STATES = new Set([
   states.ONBOARD_NAME, states.ONBOARD_LANGUAGE, states.ONBOARD_ACTIVITY,
   states.ONBOARD_DAYS, states.ONBOARD_TIME, states.ONBOARD_BLOCKER,
-  states.ONBOARD_VISION, states.ONBOARD_COMMITMENT, states.AWAITING_PAYMENT,
-  states.AWAITING_TIMETABLE,
+  states.ONBOARD_VISION, states.ONBOARD_COMMITMENT,
+  states.AWAITING_COMMITMENT, states.AWAITING_MODE_SELECTION,
+  states.AWAITING_PAYMENT, states.AWAITING_TIMETABLE,
 ]);
 
 const CHECKIN_STATES = new Set([states.ACTIVE, states.AWAITING_CHECKIN_FOLLOWUP]);
@@ -73,10 +74,10 @@ function checkForHealthProfileUpdates(user, text) {
   }
 
   // 2. Height & Weight extraction
-  const heightMatch = lower.match(/(\d{3})\s*(cm|centimeters)?/i) || lower.match(/height\s*[:=]?\s*(\d{3})/i);
+  const heightMatch = lower.match(/(\d{3})\s*(?:cm|centimeters)/i) || lower.match(/height\s*(?:is|:|=)?\s*(\d{2,3})/i);
   if (heightMatch) {
     const h = parseFloat(heightMatch[1]);
-    if (h >= 100 && h <= 250 && user.height !== h) {
+    if (h >= 120 && h <= 250 && user.height !== h) {
       updates.height = h;
     }
   }
@@ -171,6 +172,7 @@ async function handleIncomingMessage({ phone, body, media }) {
       db.db.prepare('DELETE FROM nutrition_logs WHERE user_id = ?').run(user.id);
       db.db.prepare('DELETE FROM burned_calories_logs WHERE user_id = ?').run(user.id);
       db.db.prepare('DELETE FROM chat_messages WHERE user_id = ?').run(user.id);
+      db.db.prepare('DELETE FROM outbox_messages WHERE user_id = ?').run(user.id);
       db.db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
     } finally {
       db.db.exec('PRAGMA foreign_keys = ON;');
@@ -215,8 +217,55 @@ async function handleIncomingMessage({ phone, body, media }) {
     if (!hasImage && text.length > 0) {
       try {
         const gemini = require('../services/gemini');
+        
+        // Background extraction of any durable user facts (injuries, diet constraints, etc.)
+        gemini.extractProfileFacts(user, text).catch(e => console.error('[Memory] Fact extraction error:', e.message));
+
         const intent = await gemini.classifyIntent(text);
         console.log(`[Router] Classified intent for user ${user.id}: ${intent}`);
+
+        if (intent === 'SUBSTITUTION_OR_MODIFICATION') {
+          const coaching = require('./coaching');
+          await coaching.handleSubstitutionOrModification(user, text);
+          return;
+        }
+
+        if (intent === 'HEALTH_ALERT') {
+          const coaching = require('./coaching');
+          await coaching.handleHealthAlert(user, text);
+          return;
+        }
+
+        if (intent === 'RESCHEDULE_REQUEST') {
+          const scheduleService = require('../services/scheduleService');
+          const reply = await scheduleService.handleNaturalReschedule(user, text);
+          await messaging.sendText(phone, reply);
+          return;
+        }
+
+        if (intent === 'POST_WORKOUT_RESPONSE') {
+          const coaching = require('./coaching');
+          await coaching.handlePostWorkoutResponse(user, text);
+          return;
+        }
+
+        if (intent === 'WEIGHT_UPDATE') {
+          const coaching = require('./coaching');
+          await coaching.handleWeightUpdate(user, text);
+          return;
+        }
+
+        if (intent === 'PERFORMANCE_LOG') {
+          const coaching = require('./coaching');
+          await coaching.handlePerformanceLog(user, text);
+          return;
+        }
+
+        if (intent === 'DIET_DEVIATION') {
+          const diet = require('./diet');
+          await diet.handleDietDeviation(user, text);
+          return;
+        }
 
         if (intent === 'DIET_LOG' && isPro) {
           const diet = require('./diet');

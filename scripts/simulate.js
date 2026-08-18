@@ -38,6 +38,7 @@ async function resetUser() {
       db.db.prepare('DELETE FROM nutrition_logs WHERE user_id = ?').run(user.id);
       db.db.prepare('DELETE FROM burned_calories_logs WHERE user_id = ?').run(user.id);
       db.db.prepare('DELETE FROM chat_messages WHERE user_id = ?').run(user.id);
+      db.db.prepare('DELETE FROM outbox_messages WHERE user_id = ?').run(user.id);
       db.db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
     } finally {
       db.db.exec('PRAGMA foreign_keys = ON;');
@@ -60,13 +61,12 @@ async function handlePhotoCommand(rest) {
   let caption = '';
 
   if (rest.startsWith('"')) {
-    const nextQuote = rest.indexOf('', 1); // wait, let's find matching quote index
     const endQuote = rest.indexOf('"', 1);
     if (endQuote !== -1) {
       imgPath = rest.slice(1, endQuote);
       caption = rest.slice(endQuote + 1).trim();
     } else {
-      imgPath = rest;
+      imgPath = rest.slice(1);
     }
   } else if (rest.startsWith("'")) {
     const endQuote = rest.indexOf("'", 1);
@@ -74,7 +74,7 @@ async function handlePhotoCommand(rest) {
       imgPath = rest.slice(1, endQuote);
       caption = rest.slice(endQuote + 1).trim();
     } else {
-      imgPath = rest;
+      imgPath = rest.slice(1);
     }
   } else {
     // Look for standard image extension to split path from caption
@@ -166,7 +166,15 @@ async function initSimulator() {
   if (!existing) {
     await send('Hi');
   } else {
-    console.log(`[Simulator] Loaded existing test user: ${existing.name || 'Unnamed'} (State: ${existing.state}, Streak: ${existing.streak})\n`);
+    console.log(`[Simulator] Loaded existing test user: ${existing.name || 'Unnamed'} (State: ${existing.state}, Streak: ${existing.streak})`);
+    console.log(`(Tip: type '/reset' to restart onboarding from scratch)\n`);
+    const msgs = db.getChatMessages(existing.id, 5);
+    if (msgs && msgs.length > 0) {
+      const lastBot = [...msgs].reverse().find(m => m.role === 'model');
+      if (lastBot) {
+        console.log(`ShowUp: ${lastBot.text}\n`);
+      }
+    }
   }
   rl.prompt();
 }

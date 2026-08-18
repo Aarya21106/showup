@@ -1,34 +1,5 @@
-const path = require('path');
+process.env.MOCK_WHATSAPP = 'true';
 
-// 1. Mock whatsapp.js in require.cache BEFORE any code runs to prevent it from loading Baileys / QR codes
-const whatsappMock = {
-  sendText: async (to, body) => {
-    console.log(`\n=================== WHATSAPP OUTBOX ===================`);
-    console.log(`Recipient: ${to}`);
-    console.log(`Message:\n${body}`);
-    console.log(`=======================================================\n`);
-    try {
-      const db = require('../src/db/db');
-      const user = db.getUserByPhone(to);
-      if (user) {
-        db.saveChatMessage(user.id, 'model', body);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    return { success: true };
-  }
-};
-
-const whatsappPath = path.resolve(__dirname, '../src/services/whatsapp.js');
-require.cache[whatsappPath] = {
-  id: whatsappPath,
-  filename: whatsappPath,
-  loaded: true,
-  exports: whatsappMock
-};
-
-// 2. Now import db and router safely
 const db = require('../src/db/db');
 const router = require('../src/conversation/router');
 
@@ -45,6 +16,8 @@ async function testProFeatures() {
       db.db.prepare('DELETE FROM checkins WHERE user_id = ?').run(existing.id);
       db.db.prepare('DELETE FROM nutrition_logs WHERE user_id = ?').run(existing.id);
       db.db.prepare('DELETE FROM burned_calories_logs WHERE user_id = ?').run(existing.id);
+      db.db.prepare('DELETE FROM chat_messages WHERE user_id = ?').run(existing.id);
+      db.db.prepare('DELETE FROM outbox_messages WHERE user_id = ?').run(existing.id);
       db.db.prepare('DELETE FROM users WHERE id = ?').run(existing.id);
     }
   } finally {

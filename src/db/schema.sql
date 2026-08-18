@@ -33,6 +33,11 @@ CREATE TABLE IF NOT EXISTS users (
   workout_reminded_date TEXT,
   workout_acknowledged_date TEXT,
   profile_json        TEXT DEFAULT '{}',
+  sleep_hours         REAL,
+  injuries            TEXT,
+  diet_restrictions   TEXT,
+  commitment_text     TEXT,
+  accountability_mode TEXT DEFAULT 'accountability',
   created_at          TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -113,4 +118,62 @@ CREATE TABLE IF NOT EXISTS outbox_messages (
 );
 
 CREATE INDEX IF NOT EXISTS idx_outbox_user_delivered ON outbox_messages(user_id, delivered);
+
+CREATE TABLE IF NOT EXISTS workout_logs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  date          TEXT NOT NULL,              -- YYYY-MM-DD
+  exercise_name TEXT NOT NULL,
+  sets          INTEGER,
+  reps          INTEGER,
+  weight_kg     REAL,
+  rpe           REAL,
+  status        TEXT DEFAULT 'completed',   -- completed | modified | rescheduled | missed | cancelled_valid
+  notes         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_workout_logs_user_date ON workout_logs(user_id, date);
+
+CREATE TABLE IF NOT EXISTS weight_logs (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  date          TEXT NOT NULL,              -- YYYY-MM-DD
+  weight        REAL NOT NULL,
+  notes         TEXT,
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_weight_logs_user_date ON weight_logs(user_id, date);
+
+CREATE TABLE IF NOT EXISTS workout_schedule_overrides (
+  id                INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id           INTEGER NOT NULL REFERENCES users(id),
+  original_date     TEXT NOT NULL,          -- YYYY-MM-DD
+  rescheduled_date  TEXT NOT NULL,          -- YYYY-MM-DD
+  session_name      TEXT NOT NULL,
+  status            TEXT DEFAULT 'rescheduled', -- pending | rescheduled | completed | modified | cancelled_valid | missed
+  reason            TEXT,
+  created_at        TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_overrides_user ON workout_schedule_overrides(user_id, rescheduled_date);
+
+CREATE TABLE IF NOT EXISTS weekly_reviews (
+  id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id             INTEGER NOT NULL REFERENCES users(id),
+  week_number         INTEGER,
+  start_date          TEXT,                 -- YYYY-MM-DD
+  end_date            TEXT,                 -- YYYY-MM-DD
+  weight              REAL,
+  workouts_completed  INTEGER,
+  workouts_target     INTEGER,
+  sleep_avg           REAL,
+  recovery_rating     TEXT,
+  summary             TEXT,
+  created_at          TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_weekly_reviews_user ON weekly_reviews(user_id, week_number);
+
 

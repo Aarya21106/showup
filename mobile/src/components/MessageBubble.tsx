@@ -55,7 +55,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     ? text.replace(paymentUrl, '').replace(/\n\s*\n\s*\n/g, '\n\n').trim()
     : text;
 
-  const gestureMatch = text.match(/(thumbs-up|peace-sign|three-fingers|fist|ok-sign)/i);
+  const gestureMatch = text.match(/(one-finger|two-fingers|three-fingers|four-fingers|open-palm|thumbs-up|fist|yo-yo|spiderman|peace-sign|ok-sign|rock-on|gun-finger|crossed-fingers|l-shape|1 finger|2 fingers|3 fingers|4 fingers|5 fingers)/i);
   const gestureName = gestureMatch ? gestureMatch[1].replace('-', ' ').toUpperCase() : null;
 
   const handleOpenPayment = () => {

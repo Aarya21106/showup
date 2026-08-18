@@ -23,11 +23,58 @@ async function sendPlanAndDepositAsk(user) {
 
 async function handleOnboarding(user, body) {
   const phone = user.phone;
+  const text = (body || '').trim();
 
-  if (user.state === states.AWAITING_PAYMENT) {
-    if (/\bpaid\b/i.test(body)) {
+  // Stage 7 & 8: Awaiting Mode Selection
+  if (user.state === states.AWAITING_MODE_SELECTION) {
+    const lower = text.toLowerCase();
+    if (lower === '1' || lower.includes('accountability') || lower.includes('stake') || lower.includes('deposit')) {
+      // User chose Accountability Mode (financial commitment)
+      const updated = db.updateUser(user.id, {
+        accountability_mode: 'accountability',
+        state: states.AWAITING_PAYMENT,
+      });
+      await sendPlanAndDepositAsk(updated);
+      return;
+    } else if (lower === '2' || lower.includes('coach') || lower.includes('no-stake') || lower.includes('no stake') || lower.includes('free')) {
+      // User chose Free Coach Mode (zero stake)
       const today = todayStr(config.timezone);
-      db.updateUser(user.id, {
+      const updated = db.updateUser(user.id, {
+        accountability_mode: 'coach_only',
+        deposit_status: 'free',
+        started_at: today,
+        day_count: 0,
+        state: states.ACTIVE,
+      });
+      await messaging.sendText(phone, messages.t(user.language, 'coachModeConfirmed', user.checkin_time, user.activity));
+      
+      // Stage 10: Immediately deliver Day 1
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) {
+          await messaging.sendText(phone, day1);
+        }
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
+    } else {
+      // User asked a question about modes/terms/refunds
+      const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply + '\n\nReply "1" for Accountability Mode (₹300 refundable deposit) or "2" for Coach Mode (free tracking).');
+      } else {
+        await messaging.sendText(phone, 'Reply "1" for Accountability Mode (₹300 refundable deposit) or "2" for Coach Mode (free tracking).');
+      }
+      return;
+    }
+  }
+
+  // Stage 9: Awaiting Payment (for Accountability Mode)
+  if (user.state === states.AWAITING_PAYMENT) {
+    if (/\bpaid\b/i.test(text)) {
+      const today = todayStr(config.timezone);
+      const updated = db.updateUser(user.id, {
         deposit_status: 'paid',
         started_at: today,
         day_count: 0,
@@ -36,37 +83,87 @@ async function handleOnboarding(user, body) {
       const timeStr = user.checkin_time || '08:00';
       const actStr = user.activity || 'workout';
       await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr));
+      
+      // Stage 10: Immediately deliver Day 1
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) {
+          await messaging.sendText(phone, day1);
+        }
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
+    } else if (text === '2' || /\b(switch to coach mode|coach mode|free|no-stake|no stake)\b/i.test(text)) {
+      // Switch from payment to free Coach Mode
+      const today = todayStr(config.timezone);
+      const updated = db.updateUser(user.id, {
+        accountability_mode: 'coach_only',
+        deposit_status: 'free',
+        started_at: today,
+        day_count: 0,
+        state: states.ACTIVE,
+      });
+      await messaging.sendText(phone, messages.t(user.language, 'coachModeConfirmed', user.checkin_time, user.activity));
+      try {
+        const day1 = await gemini.generateDay1Workout(updated);
+        if (day1) {
+          await messaging.sendText(phone, day1);
+        }
+      } catch (err) {
+        console.error('Error generating Day 1 workout:', err);
+      }
+      return;
     } else {
-      const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: body, history: [] });
+      const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });
       if (aiReply) {
         await messaging.sendText(phone, aiReply);
       } else {
         await messaging.sendText(phone, messages.t(user.language, 'notPaidYet'));
       }
+      return;
     }
+  }
+
+  // Stage 6: Awaiting User Commitment
+  if (user.state === states.AWAITING_COMMITMENT) {
+    const commitment = text;
+    db.updateUser(user.id, {
+      commitment_text: commitment,
+      vision_text: commitment,
+      state: states.AWAITING_MODE_SELECTION,
+    });
+    
+    // Acknowledge self-generated commitment & present Stage 7 & 8
+    const introMsg = messages.t(user.language, 'accountabilityIntro', { name: user.name });
+    await messaging.sendText(phone, `Commitment locked in:\n"${commitment}"\n\n${introMsg}`);
     return;
   }
 
   if (user.state === states.AWAITING_TIMETABLE) {
-    await handleTimetableSetup(user, body);
+    await handleTimetableSetup(user, text);
     return;
   }
 
-  // Construct current profile for checklist
+  // Stages 1 to 5: Diagnosis & Baseline Collection
   const currentProfile = {
     name: user.name || null,
     language: user.language || null,
+    goal: user.goal || null,
+    experience_level: user.experience_level || null,
     activity: user.activity || null,
     workout_location: user.workout_location || null,
     home_equipment: user.home_equipment || null,
-    experience_level: user.experience_level || null,
     height: user.height || null,
     weight: user.weight || null,
-    goal: user.goal || null,
     days_per_week: user.days_per_week !== null && user.days_per_week !== undefined ? user.days_per_week : null,
     checkin_time: user.checkin_time || null,
-    supplements: user.supplements || null,
     diet_summary: user.diet_summary || null,
+    allergy: user.allergy || null,
+    diet_restrictions: user.diet_restrictions || null,
+    blocker_text: user.blocker_text || null,
+    sleep_hours: user.sleep_hours || null,
+    injuries: user.injuries || null,
   };
 
   // Parse existing onboarding history
@@ -81,7 +178,7 @@ async function handleOnboarding(user, body) {
   try {
     result = await gemini.conductOnboardingInterview({
       currentProfile,
-      message: body.trim(),
+      message: text,
       history,
       user,
     });
@@ -91,13 +188,13 @@ async function handleOnboarding(user, body) {
     return;
   }
 
-  const { extracted, reply } = result;
+  const { extracted, is_profile_complete, reply } = result;
 
   // Update history
-  history.push({ role: 'user', text: body.trim() });
+  history.push({ role: 'user', text });
   history.push({ role: 'model', text: reply });
-  if (history.length > 10) {
-    history = history.slice(-10);
+  if (history.length > 14) {
+    history = history.slice(-14);
   }
 
   // Merge extracted fields and build the updated profile
@@ -115,30 +212,38 @@ async function handleOnboarding(user, body) {
     updatedUser = db.updateUser(user.id, fieldsToUpdate);
   }
 
-  // Check if all required onboarding fields are collected
-  const isProfileComplete =
-    Boolean(updatedUser.name) &&
-    Boolean(updatedUser.activity) &&
-    Boolean(updatedUser.workout_location) &&
-    (updatedUser.workout_location !== 'home' || Boolean(updatedUser.home_equipment)) &&
-    Boolean(updatedUser.experience_level) &&
-    Boolean(updatedUser.height) &&
-    Boolean(updatedUser.weight) &&
-    Boolean(updatedUser.goal) &&
-    updatedUser.days_per_week !== null &&
-    updatedUser.days_per_week !== undefined &&
-    Boolean(updatedUser.checkin_time) &&
-    updatedUser.supplements !== null &&
-    updatedUser.supplements !== undefined;
+  // Check if all variables are collected
+  const isComplete =
+    is_profile_complete ||
+    (
+      Boolean(updatedUser.name) &&
+      Boolean(updatedUser.goal) &&
+      Boolean(updatedUser.experience_level) &&
+      Boolean(updatedUser.activity) &&
+      Boolean(updatedUser.height) &&
+      Boolean(updatedUser.weight) &&
+      updatedUser.days_per_week !== null &&
+      updatedUser.days_per_week !== undefined &&
+      Boolean(updatedUser.checkin_time) &&
+      Boolean(updatedUser.diet_summary) &&
+      Boolean(updatedUser.allergy || updatedUser.diet_restrictions) &&
+      Boolean(updatedUser.blocker_text) &&
+      updatedUser.sleep_hours !== null &&
+      updatedUser.sleep_hours !== undefined &&
+      Boolean(updatedUser.injuries)
+    );
 
-  // Always send Gemini's reply (which includes the diet/supplement suggestions when finishing)
+  // Send Gemini's reply
   if (reply) {
     await messaging.sendText(phone, reply);
   }
 
-  if (isProfileComplete) {
-    const updated = db.updateUser(user.id, { state: states.AWAITING_PAYMENT, onboarding_history: '[]' });
-    await sendPlanAndDepositAsk(updated);
+  if (isComplete) {
+    // Move to Stage 6: Awaiting Commitment
+    db.updateUser(user.id, {
+      state: states.AWAITING_COMMITMENT,
+      onboarding_history: '[]',
+    });
   }
 }
 
@@ -187,3 +292,4 @@ async function handleTimetableSetup(user, body) {
 }
 
 module.exports = { handleOnboarding, sendPlanAndDepositAsk, handleTimetableSetup };
+

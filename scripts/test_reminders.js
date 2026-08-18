@@ -1,51 +1,6 @@
-const path = require('path');
+process.env.MOCK_WHATSAPP = 'true';
 
-// 1. Mock whatsapp
-const whatsappMock = {
-  sendText: async (to, body) => {
-    console.log(`\n=================== WHATSAPP OUTBOX ===================`);
-    console.log(`Recipient: ${to}`);
-    console.log(`Message:\n${body}`);
-    console.log(`=======================================================\n`);
-    try {
-      const db = require('../src/db/db');
-      const user = db.getUserByPhone(to);
-      if (user) {
-        db.saveChatMessage(user.id, 'model', body);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    return { success: true };
-  },
-  sendMedia: async (to, body, url) => {
-    console.log(`\n=================== WHATSAPP OUTBOX (MEDIA) ===================`);
-    console.log(`Recipient: ${to}`);
-    console.log(`Media URL: ${url}`);
-    console.log(`Caption: ${body}`);
-    console.log(`===============================================================\n`);
-    try {
-      const db = require('../src/db/db');
-      const user = db.getUserByPhone(to);
-      if (user) {
-        db.saveChatMessage(user.id, 'model', body);
-      }
-    } catch (err) {
-      console.error(err);
-    }
-    return { success: true };
-  }
-};
-
-const whatsappPath = path.resolve(__dirname, '../src/services/whatsapp.js');
-require.cache[whatsappPath] = {
-  id: whatsappPath,
-  filename: whatsappPath,
-  loaded: true,
-  exports: whatsappMock
-};
-
-// 2. Mock date helpers to allow controlling "currentTime"
+// Mock date helpers to allow controlling "currentTime"
 const dateUtils = require('../src/utils/date');
 let mockTime = null;
 let mockDate = null;
