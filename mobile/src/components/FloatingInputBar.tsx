@@ -8,27 +8,27 @@ import {
   Text,
   ActivityIndicator,
 } from 'react-native';
-import { ArrowUp, Camera, MessageSquare, Utensils, Activity, Calendar } from 'lucide-react-native';
+import { ArrowUp, Image as ImageIcon, MessageSquare, Utensils, Activity, Calendar } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, BorderRadius } from '../theme/colors';
 
 interface FloatingInputBarProps {
   onSendMessage: (text: string) => void;
-  onOpenCheckinCamera: () => void;
+  onAttachPhoto: (caption?: string) => void;
   isLoading?: boolean;
 }
 
 const QUICK_ACTIONS = [
-  { id: 'checkin', label: 'Check-in', icon: Camera, prompt: '' },
   { id: 'diet', label: 'Log Meal', icon: Utensils, prompt: 'I ate: ' },
+  { id: 'diet_chart', label: 'Diet Chart', icon: ImageIcon, isAttach: true, caption: 'Here is my diet chart' },
   { id: 'burn', label: 'Log Activity', icon: Activity, prompt: 'I burned calories doing: ' },
-  { id: 'schedule', label: 'Timetable', icon: Calendar, prompt: 'Show me my fitness timetable and today\'s focus.' },
-  { id: 'advice', label: 'Ask Coach', icon: MessageSquare, prompt: 'How can I optimize my recovery today?' },
+  { id: 'schedule', label: 'Timetable', icon: Calendar, prompt: 'Show me my fitness timetable.' },
+  { id: 'advice', label: 'Ask Coach', icon: MessageSquare, prompt: 'Coach, ' },
 ];
 
 export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
   onSendMessage,
-  onOpenCheckinCamera,
+  onAttachPhoto,
   isLoading = false,
 }) => {
   const [text, setText] = useState('');
@@ -45,12 +45,12 @@ export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
     setText('');
   };
 
-  const handleQuickAction = (prompt: string, isCheckin?: boolean) => {
-    if (isCheckin) {
-      onOpenCheckinCamera();
+  const handleQuickAction = (action: typeof QUICK_ACTIONS[0]) => {
+    if (action.isAttach) {
+      onAttachPhoto(action.caption);
       return;
     }
-    setText(prompt);
+    setText(action.prompt || '');
   };
 
   return (
@@ -67,7 +67,7 @@ export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
             <TouchableOpacity
               key={action.id}
               style={styles.chip}
-              onPress={() => handleQuickAction(action.prompt, action.id === 'checkin')}
+              onPress={() => handleQuickAction(action)}
               activeOpacity={0.7}
             >
               <Icon size={12} color={Colors.textSecondary} style={styles.chipIcon} />
@@ -79,13 +79,14 @@ export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
 
       {/* Input Row */}
       <View style={styles.inputRow}>
-        {/* Camera Quick Button */}
+        {/* Attach Photo Button */}
         <TouchableOpacity
           style={styles.cameraButton}
-          onPress={onOpenCheckinCamera}
+          onPress={() => onAttachPhoto()}
           activeOpacity={0.7}
+          accessibilityLabel="Attach Photo"
         >
-          <Camera size={19} color={Colors.primary} strokeWidth={2} />
+          <ImageIcon size={19} color={Colors.primary} strokeWidth={2} />
         </TouchableOpacity>
 
         {/* Text Input */}

@@ -28,6 +28,8 @@ export const ChatScreen: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
+  const [photoSheetMode, setPhotoSheetMode] = useState<'attach' | 'checkin'>('attach');
+  const [initialPhotoCaption, setInitialPhotoCaption] = useState('');
   const [isPledgeDrawerOpen, setIsPledgeDrawerOpen] = useState(false);
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
@@ -198,7 +200,11 @@ export const ChatScreen: React.FC = () => {
           renderItem={({ item }) => (
             <MessageBubble
               message={item}
-              onOpenCheckinCamera={() => setIsCameraOpen(true)}
+              onOpenCheckinCamera={() => {
+                setPhotoSheetMode('checkin');
+                setInitialPhotoCaption('');
+                setIsCameraOpen(true);
+              }}
               onImagePress={(url) => setEnlargedImage(url)}
             />
           )}
@@ -211,13 +217,19 @@ export const ChatScreen: React.FC = () => {
         {/* Floating Input Bar */}
         <FloatingInputBar
           onSendMessage={handleSendMessage}
-          onOpenCheckinCamera={() => setIsCameraOpen(true)}
+          onAttachPhoto={(caption) => {
+            setPhotoSheetMode('attach');
+            setInitialPhotoCaption(caption || '');
+            setIsCameraOpen(true);
+          }}
           isLoading={isLoading}
         />
 
-        {/* Camera Check-in Proof Sheet */}
+        {/* Camera / Photo Attachment & Check-in Sheet */}
         <CameraProofSheet
           visible={isCameraOpen}
+          mode={photoSheetMode}
+          initialCaption={initialPhotoCaption}
           onClose={() => setIsCameraOpen(false)}
           onSubmitProof={handleSubmitProof}
         />

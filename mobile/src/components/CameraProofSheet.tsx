@@ -19,6 +19,8 @@ interface CameraProofSheetProps {
   visible: boolean;
   onClose: () => void;
   onSubmitProof: (imageBase64: string, caption: string, imageUri: string) => Promise<void>;
+  mode?: 'attach' | 'checkin';
+  initialCaption?: string;
 }
 
 const GESTURE_EMOJIS: Record<string, string> = {
@@ -43,12 +45,21 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
   visible,
   onClose,
   onSubmitProof,
+  mode = 'attach',
+  initialCaption = '',
 }) => {
   const { profile } = useAuth();
   const [selectedImage, setSelectedImage] = useState<{ uri: string; base64: string } | null>(null);
-  const [caption, setCaption] = useState('');
+  const [caption, setCaption] = useState(initialCaption);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  React.useEffect(() => {
+    if (visible) {
+      setCaption(initialCaption || '');
+    }
+  }, [visible, initialCaption]);
+
+  const isCheckinMode = mode === 'checkin';
   const rawGesture = profile?.current_gesture || 'peace-sign';
   const gestureName = rawGesture.replace('-', ' ').toUpperCase();
   const gestureEmoji = GESTURE_EMOJIS[rawGesture] || '✌️';
@@ -57,7 +68,7 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
     try {
       const permission = await ImagePicker.requestCameraPermissionsAsync();
       if (!permission.granted) {
-        alert('Camera permission is required to take workout proof!');
+        alert('Camera permission is required to take photos!');
         return;
       }
 
@@ -83,7 +94,7 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
     try {
       const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
       if (!permission.granted) {
-        alert('Gallery permission is required to upload screenshots!');
+        alert('Gallery permission is required to select photos!');
         return;
       }
 
@@ -114,7 +125,7 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
       setCaption('');
       onClose();
     } catch (e) {
-      alert('Failed to submit proof. Please try again.');
+      alert('Failed to send image. Please try again.');
     } finally {
       setIsSubmitting(false);
     }
@@ -134,8 +145,14 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
           {/* Header */}
           <View style={styles.header}>
             <View style={styles.titleRow}>
-              <Sparkles size={18} color={Colors.primary} />
-              <Text style={styles.title}>Submit Daily Check-in</Text>
+              {isCheckinMode ? (
+                <Sparkles size={18} color={Colors.primary} />
+              ) : (
+                <ImageIcon size={18} color={Colors.primary} />
+              )}
+              <Text style={styles.title}>
+                {isCheckinMode ? 'Submit Daily Check-in' : 'Attach Photo'}
+              </Text>
             </View>
             <TouchableOpacity onPress={handleDismiss} style={styles.closeBtn}>
               <X size={20} color={Colors.textMuted} />
@@ -143,19 +160,28 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
           </View>
 
           <ScrollView showsVerticalScrollIndicator={false}>
-            {/* Gesture / Requirement Banner */}
-            <View style={styles.gestureBanner}>
-              <View style={styles.gestureIconCircle}>
-                <Text style={styles.gestureEmoji}>{gestureEmoji}</Text>
+            {/* Banner */}
+            {isCheckinMode ? (
+              <View style={styles.gestureBanner}>
+                <View style={styles.gestureIconCircle}>
+                  <Text style={styles.gestureEmoji}>{gestureEmoji}</Text>
+                </View>
+                <View style={styles.gestureContent}>
+                  <Text style={styles.gestureTitle}>TODAY'S GESTURE: {gestureName}</Text>
+                  <Text style={styles.gestureSubtitle}>
+                    For Gym/Home: Hold up the gesture in your photo.
+                    {'\n'}For Running/Cycling: Upload your Strava/Fit screenshot.
+                  </Text>
+                </View>
               </View>
-              <View style={styles.gestureContent}>
-                <Text style={styles.gestureTitle}>TODAY'S GESTURE: {gestureName}</Text>
-                <Text style={styles.gestureSubtitle}>
-                  For Gym/Home: Hold up the gesture in your photo.
-                  {'\n'}For Running/Cycling: Upload your Strava/Fit screenshot.
+            ) : (
+              <View style={styles.attachBanner}>
+                <ImageIcon size={18} color={Colors.primary} style={{ marginRight: Spacing.sm }} />
+                <Text style={styles.attachBannerText}>
+                  Send diet charts, food/meal photos, progress pics, or fitness queries to your coach.
                 </Text>
               </View>
-            </View>
+            )}
 
             {/* Selected Image Preview */}
             {selectedImage ? (
@@ -179,8 +205,8 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
                   <View style={styles.iconCircle}>
                     <Camera size={26} color={Colors.primary} />
                   </View>
-                  <Text style={styles.actionTitle}>Take Selfie</Text>
-                  <Text style={styles.actionSub}>With gesture proof</Text>
+                  <Text style={styles.actionTitle}>Take Photo</Text>
+                  <Text style={styles.actionSub}>{isCheckinMode ? 'With gesture proof' : 'Camera snapshot'}</Text>
                 </TouchableOpacity>
 
                 <TouchableOpacity
@@ -191,8 +217,8 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
                   <View style={[styles.iconCircle, { borderColor: Colors.azure }]}>
                     <ImageIcon size={26} color={Colors.azure} />
                   </View>
-                  <Text style={styles.actionTitle}>Cardio Screenshot</Text>
-                  <Text style={styles.actionSub}>Strava / Apple Fit</Text>
+                  <Text style={styles.actionTitle}>Photo Gallery</Text>
+                  <Text style={styles.actionSub}>{isCheckinMode ? 'Strava / tracker proof' : 'Diet chart or photo'}</Text>
                 </TouchableOpacity>
               </View>
             )}
@@ -202,7 +228,11 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
               <View style={styles.captionContainer}>
                 <TextInput
                   style={styles.captionInput}
-                  placeholder="Add note (e.g., Chest & Triceps completed, 45 mins)..."
+                  placeholder={
+                    isCheckinMode
+                      ? "Add note (e.g., Chest & Triceps completed, 45 mins)..."
+                      : "Add a note or message (e.g. Here is my diet chart)..."
+                  }
                   placeholderTextColor={Colors.textDim}
                   value={caption}
                   onChangeText={setCaption}
@@ -224,7 +254,9 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
                 ) : (
                   <>
                     <Check size={18} color={Colors.bgMain} strokeWidth={2.5} />
-                    <Text style={styles.submitButtonText}>Verify & Send Check-in</Text>
+                    <Text style={styles.submitButtonText}>
+                      {isCheckinMode ? 'Verify & Send Check-in' : 'Send Photo to Coach'}
+                    </Text>
                   </>
                 )}
               </TouchableOpacity>
@@ -269,6 +301,22 @@ const styles = StyleSheet.create({
   },
   closeBtn: {
     padding: 4,
+  },
+  attachBanner: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.bgCardElevated,
+    borderWidth: 1,
+    borderColor: Colors.border,
+    borderRadius: BorderRadius.md,
+    padding: Spacing.md,
+    marginBottom: Spacing.lg,
+  },
+  attachBannerText: {
+    flex: 1,
+    fontSize: 12,
+    color: Colors.textSecondary,
+    lineHeight: 17,
   },
   gestureBanner: {
     flexDirection: 'row',

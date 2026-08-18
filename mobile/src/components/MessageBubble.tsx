@@ -43,7 +43,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   // Detect special cards
   const isPaymentLink = !isUser && (text.includes('razorpay.me') || text.includes('deposit'));
-  const isGesturePrompt = !isUser && (text.includes('gesture') || text.includes('thumbs-up') || text.includes('peace-sign') || text.includes('proof'));
+  const isGesturePrompt =
+    !isUser &&
+    (text.includes('Daily reminder: Please submit your workout proof') ||
+      (text.toLowerCase().includes('workout proof') &&
+        (text.includes('finger') ||
+          text.includes('hand sign') ||
+          text.includes('sign') ||
+          text.includes('pose') ||
+          text.includes('holding up'))) ||
+      (text.toLowerCase().includes('daily gesture') && text.toLowerCase().includes('weights')));
   const isDietLog = !isUser && text.includes('Diet Logged') && text.includes('kcal');
   const isBurnLog = !isUser && text.includes('Activity Logged') && text.includes('Burned');
 

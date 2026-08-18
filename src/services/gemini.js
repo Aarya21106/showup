@@ -67,8 +67,8 @@ const LANGUAGE_NAMES = { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish 
 
 const RESPECT_AND_TONE_RULES = `
 === MANDATORY RESPECT, CLARITY & TONE RULES (CRITICAL) ===
-1. STRICT NO-EMOJIS RULE: You are strictly FORBIDDEN from using emojis anywhere in your response. No emojis of any kind (no emojis like fire, muscle, flex, party, trophy, smileys, food icons, etc.). Keep all responses 100% clean, professional, and emoji-free.
-2. SHORT & SWEET CONSISTENCY (CRITICAL): Keep all conversational replies short, punchy, sweet, and WhatsApp-friendly (max 60–90 words). NEVER write big walls of text, giant essays, or dense blocks. Every paragraph must be 1-2 short sentences.
+1. STRICT ZERO-EMOJIS RULE: You are strictly FORBIDDEN from using emojis anywhere in your response. No emojis of any kind under any circumstance. Keep all responses 100% clean, professional, and emoji-free.
+2. ULTRA-SHORT, FRIENDLY & CRISP (CRITICAL): Keep all conversational replies very short, friendly, punchy, and natural (max 25-45 words for conversational replies). Never write giant essays or long paragraphs. 1 to 2 short sentences per thought is ideal. Sound like a knowledgeable, supportive friend texting on WhatsApp.
 3. CLEAN LINE SPACING & FORMATTING:
    - Always use clean vertical spacing (\`\\n\\n\`) between distinct sections, headers, bullet points, and questions.
    - Use clean, pointed bullet points ('• ' or '- ') or bracket numbers ('[1]', '[2]') for instructions and lists.
@@ -123,7 +123,7 @@ const RESPECT_AND_TONE_RULES = `
    - Objective: ALWAYS use "ungalukku" / "உங்களுக்கு".
    - Verbs: ALWAYS use polite respectful endings: "yosinga", "sollunga", "pannunga", "podunga", "vaanga", "paarkalaam", "mudiyum".
 10. IN ENGLISH / HINDI / HINGLISH:
-   - Maintain a respectful, crisp, clean, short, and motivating tone.
+   - Maintain a respectful, crisp, clean, short, friendly, and motivating tone. Zero emojis.
 `;
 
 /**
@@ -1202,42 +1202,45 @@ Reply ONLY in ${langName}.`;
 async function generateHydrationReminder(user) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const prompt = `You are ShowUp, a direct fitness coach.
-Generate a short, punchy hydration reminder for ${user.name} on WhatsApp (max 30 words) in ${langName}.
-Remind them to drink a large glass of water now to stay hydrated, hit their 3-4L daily target, and keep energy & muscle recovery high.`;
+Generate a very short, friendly hydration reminder for ${user.name} on WhatsApp (max 25 words) in ${langName}.
+Remind them to drink a glass of water now.
+STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
     return text.trim();
   } catch (e) {
-    return `Hydration check, ${user.name}! Grab a glass of water now. Aim for 3 to 4 liters today to keep your muscles hydrated and recovery on point.`;
+    return `Hydration check, ${user.name}. Grab a glass of water now. Aim for 3 to 4 liters today to keep your muscles hydrated and recovery on point.`;
   }
 }
 
 async function generateMealReminder(user, mealType = 'lunch') {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const prompt = `You are ShowUp, a direct fitness coach and nutritionist.
-Generate a short, punchy meal reminder for ${user.name} for ${mealType} on WhatsApp (max 40 words) in ${langName}.
-Remind them to fuel their body with adequate protein (~${Math.round((user.weight || 70) * 1.8)}g daily target) and log their meal to stay on track with their ${user.target_calories || 2000} kcal daily goal!`;
+Generate a short, friendly meal reminder for ${user.name} for ${mealType} on WhatsApp (max 30 words) in ${langName}.
+Remind them to get adequate protein (~${Math.round((user.weight || 70) * 1.8)}g daily target) and log their meal.
+STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
     return text.trim();
   } catch (e) {
-    return `Meal time, ${user.name}! Make sure your ${mealType} includes a solid protein source. Reply with what you ate to log your calories and stay on target!`;
+    return `Meal time, ${user.name}. Make sure your ${mealType} includes a solid protein source. Reply with what you ate to log your calories and stay on target.`;
   }
 }
 
 async function generateSleepRecoveryReminder(user) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const prompt = `You are ShowUp, a direct fitness coach.
-Generate a short, warm nightly sleep & recovery reminder for ${user.name} on WhatsApp (max 40 words) in ${langName}.
-Remind them that muscles grow and repair during 7-8 hours of quality sleep tonight. Wind down and get good rest for tomorrow!`;
+Generate a short, warm nightly sleep reminder for ${user.name} on WhatsApp (max 30 words) in ${langName}.
+Remind them to get 7-8 hours of quality sleep tonight for muscle recovery.
+STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
     return text.trim();
   } catch (e) {
-    return `Night check, ${user.name}! Remember: your workout breaks down muscle, but 7-8 hours of deep sleep tonight is when it rebuilds and grows stronger. Wind down and get great rest!`;
+    return `Night check, ${user.name}. 7-8 hours of deep sleep tonight is when your muscles rebuild and grow stronger. Wind down and get great rest.`;
   }
 }
 
@@ -1262,12 +1265,12 @@ Profile summary for your internal awareness:
 - Timetable: ${timetableStr}
 
 INSTRUCTIONS:
-1. SHORT & SWEET CONSISTENCY (CRITICAL): Keep answers concise, punchy, and WhatsApp-friendly (max 60-80 words). Never output large unbroken text blocks.
-2. GREETINGS & CASUAL CHAT: 1-2 friendly, natural sentences. E.g. "Hey ${user.name}! What's up? Ready to hit today's session?".
-3. WORKOUT / EXERCISE QUESTIONS: Format strictly in notebook style: "[1] Exercise Name - Sets×Reps".
-4. OVERTRAINING / 7 DAYS / 2 HOURS / HARDCORE: If user mentions hardcore daily workouts or zero rest days, explain clearly that rest days are when muscles repair and grow, and prescribe 4-5 workout days + 2 rest days.
-5. FOOD / DIET / CALORIE QUESTIONS: Give EXACT PORTION WEIGHT IN GRAMS (e.g. 250g Chicken Biryani = ~450 kcal), protein, and fit within daily ${user.target_calories || 2000} kcal target. Format with clean line breaks.
-6. PROACTIVE COMPLETION: If height/weight or cuisine region is missing, ask for it in 1 short line at the end.
+1. ULTRA-SHORT, FRIENDLY & CRISP (CRITICAL): Keep answers very concise, friendly, and natural (max 25-45 words). 1-2 short sentences is ideal. ZERO emojis anywhere.
+2. GREETINGS & CASUAL CHAT: 1 friendly, natural sentence (e.g. "Hey ${user.name}! What's up? Ready to train today?").
+3. WORKOUT / EXERCISE QUESTIONS: Format strictly in clean notebook style: "[1] Exercise Name - Sets×Reps".
+4. OVERTRAINING / 7 DAYS / 2 HOURS / HARDCORE: If user mentions hardcore daily workouts or zero rest days, explain briefly that rest is when muscles grow, and prescribe 4-5 workout days + 2 rest days.
+5. FOOD / DIET / CALORIE QUESTIONS: Give exact grams and calories briefly (e.g. 200g Chicken = ~330 kcal, 40g Protein).
+6. PROACTIVE COMPLETION: If height/weight is missing, ask in 1 short line at the end.
 
 Reply ONLY in ${langName}.`;
 
@@ -1627,17 +1630,14 @@ ${paceContext}
 ${otherActivitiesContext}
 ${suggestGoalUpgrade ? `IMPORTANT: They've consistently hit their ${weeklyGoalDistanceKm}km goal 2 weeks in a row. Suggest bumping the distance target (e.g. to ${(weeklyGoalDistanceKm + 0.5).toFixed(1)}km) — ask casually at the end.` : ''}
 
-Write a short WhatsApp message (max 85 words) as a casual best-friend coach:
-1. React specifically to today's ${activity} — distance, pace, calories if notable
-2. If distance < ${(weeklyGoalDistanceKm * 0.85).toFixed(1)}km (below 85% of goal): be encouraging but mention they were a bit short — "hey only Xkm today" style, not harsh
-3. If distance >= ${(weeklyGoalDistanceKm * 0.85).toFixed(1)}km: celebrate or acknowledge it well
-4. Show weekly progress ("X/${weeklyGoalSessions} ${activity} sessions this week, N more to go" or "crushed it!")
-5. If there are other activities in the plan, give them a quick status too (1 line max)
-6. Mention pace trend if notable
-7. Suggest goal upgrade casually if flagged
+Write a very short, friendly message (max 35-45 words) as a supportive coach:
+1. React specifically to today's ${activity} — distance, pace, or calories.
+2. If distance < ${(weeklyGoalDistanceKm * 0.85).toFixed(1)}km: encourage them gently.
+3. If distance >= ${(weeklyGoalDistanceKm * 0.85).toFixed(1)}km: acknowledge the solid effort.
+4. Show weekly progress briefly ("${weekDone}/${weeklyGoalSessions} done").
+5. Suggest goal upgrade casually if flagged.
 
-STYLE: Like texting a close Indian friend/coach. "bro", "da", "nice one", "let's go", "come on", "ayyy". Short punchy sentences. Max 1-2 emojis. No hashtags. No lectures.
-Consistency > perfection is the vibe.
+STYLE: Very short, punchy, supportive, and natural. STRICT ZERO EMOJIS. Respectful forms in Tamil/Tanglish (use "neenga", "bro", never "da"/"dei").
 
 Reply ONLY in ${langName}.`;
 
