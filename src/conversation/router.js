@@ -11,7 +11,10 @@ const ONBOARD_STATES = new Set([
   states.ONBOARD_VISION, states.ONBOARD_COMMITMENT,
   states.AWAITING_COMMITMENT, states.AWAITING_MODE_SELECTION,
   states.AWAITING_PAYMENT, states.AWAITING_NUTRITION_CHOICE,
-  states.AWAITING_USER_NUTRITION_PLAN, states.AWAITING_TIMETABLE,
+  states.AWAITING_USER_NUTRITION_PLAN, states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
+  states.AWAITING_TIMETABLE,
+  states.AWAITING_MEAL_REMINDER_CONSENT, states.AWAITING_MEAL_REMINDER_TIMES,
+  states.AWAITING_SELF_TRACKING_CONSENT,
 ]);
 
 const CHECKIN_STATES = new Set([states.ACTIVE, states.AWAITING_CHECKIN_FOLLOWUP]);
@@ -115,8 +118,12 @@ function autoCorrectUserLanguage(user, text) {
       /\b(?:bro|ji|thala)\s+(?:epdi|enna|sollunga|solunga|sapten|pannren|irukken|valikudhu|valikuthu)\b/i.test(lower);
 
     // Check Hinglish indicators
+    // NOTE: "the" and "bhai" were previously in the broad list below and caused
+    // false-positive Hinglish detection — "the" is the most common word in English,
+    // and "bhai" is common Indian-English slang ("thanks bhai") independent of language.
+    // "bhai" is still detected, but only when paired with an actual Hindi verb (2nd pattern).
     const isHinglish =
-      /\b(namaste|kaise|kaisa|kaisi|kya|chal|raha|rahi|rahe|hai|hain|karo|karna|karenge|karein|kiya|tha|thi|the|aaj|kal|parso|khaya|khana|kha|batao|bataiye|bolo|bhai|haan|nahi|nahin|accha|achha|theek|thik|bahut|thoda|samajh|gaya|gayi|shukriya|dhanyavad|kripya|apna|apni|mera|meri|mujhe|tumhe|aapko|hoga|hogi|humein|karega|karegi|chahiye|boliye|paani|bhook|dard)\b/i.test(lower) ||
+      /\b(namaste|kaise|kaisa|kaisi|kya|chal|raha|rahi|rahe|hai|hain|karo|karna|karenge|karein|kiya|tha|thi|aaj|kal|parso|khaya|khana|kha|batao|bataiye|bolo|haan|nahi|nahin|accha|achha|theek|thik|bahut|thoda|samajh|gaya|gayi|shukriya|dhanyavad|kripya|apna|apni|mera|meri|mujhe|tumhe|aapko|hoga|hogi|humein|karega|karegi|chahiye|boliye|paani|bhook|dard)\b/i.test(lower) ||
       /\b(?:bhai|bhaiya|ji)\s+(?:kaise|kya|batao|bolo|karna|hai)\b/i.test(lower);
 
     // Check English indicators (sentences / questions in English)
@@ -150,10 +157,14 @@ function checkForHealthProfileUpdates(user, text) {
   const updates = {};
 
   // 1. Allergy extraction
-  if (/(no allergy|no food allergy|onnum illa|none|naan|nill|illai|illa|nothing|no allergies|apdi ethum illai|ethum illai)/i.test(lower)) {
+  // Bug fix: these patterns previously had no word boundaries, so they matched
+  // substrings inside unrelated words — e.g. "egg" inside a typo like "begginer"
+  // (misspelled "beginner") was getting flagged as an egg allergy. \b anchors
+  // every alternative to a real whole word.
+  if (/\b(no allergy|no food allergy|onnum illa|none|naan|nill|illai|illa|nothing|no allergies|apdi ethum illai|ethum illai)\b/i.test(lower)) {
     if (user.allergy !== 'none') updates.allergy = 'none';
-  } else if (/(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)/i.test(lower)) {
-    const match = lower.match(/(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)/gi);
+  } else if (/\b(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)\b/i.test(lower)) {
+    const match = lower.match(/\b(peanuts|dairy|gluten|egg|milk|wheat|soy|fish|nuts|seafood|lactose)\b/gi);
     if (match) {
       const val = Array.from(new Set(match)).join(', ');
       if (user.allergy !== val) updates.allergy = val;
@@ -282,9 +293,29 @@ async function handleIncomingMessage({ phone, body, media }) {
   }
 
   if (CHECKIN_STATES.has(user.state)) {
-    const hasImage = media && (media.mediaUrl || media.testBase64);
+    const hasImage = media && (media.mediaUrl || media.testBase64) && !(media.mimeType || '').startsWith('audio/');
+    const hasAudio = media && (media.mediaUrl || media.testBase64) && (media.mimeType || '').startsWith('audio/');
     const isPro = user.tier && user.tier.startsWith('pro');
     const workoutToday = isWorkoutDayToday(user);
+
+    // Pro-tier voice chat — the app already gates this at the API layer, but
+    // double-check here too rather than trusting the client.
+    if (hasAudio) {
+      if (!isPro) {
+        await messaging.sendText(phone, 'Voice chat is available on Pro plans. Upgrade to talk to your coach by voice — for now, just type it out!');
+        return;
+      }
+      try {
+        const gemini = require('../services/gemini');
+        const { transcription, reply } = await gemini.transcribeAndRespondToVoice({ user, audioBase64: media.testBase64, mimeType: media.mimeType });
+        db.saveChatMessage(user.id, 'user', transcription);
+        await messaging.sendText(phone, reply);
+      } catch (err) {
+        console.error('[Router] Voice message handling failed:', err);
+        await messaging.sendText(phone, "Sorry, I couldn't process that voice message — please try again or type it instead.");
+      }
+      return;
+    }
 
     if (cleanText.includes('change schedule') || cleanText.includes('update timetable') || cleanText.includes('edit schedule')) {
       db.updateUser(user.id, { state: states.AWAITING_TIMETABLE });
@@ -389,8 +420,28 @@ async function handleIncomingMessage({ phone, body, media }) {
           await messaging.sendText(phone, reply);
           return;
         }
+
+        // Bug 3 fix: catch-all for any intent label not in the chain above
+        // (e.g. a new label added to Gemini prompt but not yet handled here,
+        //  or an unexpected return value).
+        // Previously: execution exited try block silently → fell through to handleCheckinFlow.
+        // Now: still answer via handleGeneralQuery so the user gets a response.
+        const unknownIntentReply = await gemini.handleGeneralQuery(user, text);
+        await messaging.sendText(phone, unknownIntentReply);
+        return;
       } catch (err) {
         console.error('[Router] Error during intent classification:', err);
+        // Bug 2 fix: classifyIntent() threw (e.g. rate limit, network error).
+        // Previously: no return → fell through to handleCheckinFlow → "send gym photo".
+        // Now: fall back to handleGeneralQuery so the user still gets an answer.
+        try {
+          const reply = await gemini.handleGeneralQuery(user, text);
+          await messaging.sendText(phone, reply);
+        } catch (fallbackErr) {
+          console.error('[Router] Fallback general query also failed:', fallbackErr.message);
+          await messaging.sendText(phone, "Sorry, I couldn't process that right now. Please try again.");
+        }
+        return; // ← CRITICAL: prevents fall-through to handleCheckinFlow
       }
     }
 

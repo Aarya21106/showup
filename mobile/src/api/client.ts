@@ -98,11 +98,45 @@ export const ShowUpApi = {
     return response.data;
   },
 
-  // Send a text message or image check-in to the bot
-  async sendMessage(payload: { body: string; imageBase64?: string; mimeType?: string }) {
+  // Send a text message, image check-in, or (Pro-only) voice message to the bot
+  async sendMessage(payload: {
+    body: string;
+    imageBase64?: string;
+    mimeType?: string;
+    audioBase64?: string;
+    audioMimeType?: string;
+  }) {
     const api = getAxiosInstance();
     const response = await api.post('/api/message', payload);
     return response.data;
+  },
+
+  // Register this device's Expo push token so reminders can arrive while the app is closed/backgrounded
+  async registerPushToken(pushToken: string, platform: 'ios' | 'android'): Promise<{ success: boolean }> {
+    const api = getAxiosInstance();
+    const response = await api.post('/api/push-token', { pushToken, platform });
+    return response.data;
+  },
+
+  // Unregister a push token (e.g. on logout)
+  async unregisterPushToken(pushToken: string): Promise<{ success: boolean }> {
+    const api = getAxiosInstance();
+    const response = await api.delete('/api/push-token', { data: { pushToken } });
+    return response.data;
+  },
+
+  // Fetch recent chat history — used to seed the local on-device cache on first
+  // login or after a reinstall (day-to-day persistence is handled locally, see chatStorage.ts)
+  async getChatHistory(limit = 100): Promise<ChatMessage[]> {
+    const api = getAxiosInstance();
+    const response = await api.get('/api/chat-history', { params: { limit } });
+    return (response.data.messages || []).map((m: any) => ({
+      id: m.id,
+      role: m.role,
+      text: m.text,
+      created_at: m.created_at,
+      status: 'delivered',
+    }));
   },
 
   // Fetch pending messages (outbox queue from scheduler/Gemini)

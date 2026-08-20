@@ -58,7 +58,7 @@ async function runReminderTests() {
 
   db.updateUser(user.id, {
     name: 'ReminderTester',
-    tier: 'pro_120',
+    tier: 'pro',
     activity: 'gym',
     checkin_time: '07:00',
     timetable: JSON.stringify(timetable),

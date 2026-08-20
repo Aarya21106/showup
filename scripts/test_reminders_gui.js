@@ -109,7 +109,7 @@ function resetTestUser() {
   db.updateUser(user.id, {
     name: 'TestUser',
     language: 'en',
-    tier: 'pro_120',
+    tier: 'pro',
     activity: 'gym',
     checkin_time: '07:00',
     timetable: JSON.stringify(timetable),

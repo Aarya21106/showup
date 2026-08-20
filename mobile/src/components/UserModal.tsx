@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -7,30 +7,79 @@ import {
   TouchableOpacity,
   TextInput,
   Alert,
+  ActivityIndicator,
 } from 'react-native';
-import { X, Server, Phone, RotateCcw, Check, Sparkles } from 'lucide-react-native';
+import { X, Server, Phone, RotateCcw, Check, Sparkles, Bell, BellOff, Trash2 } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '../theme/colors';
 import { useAuth } from '../context/AuthContext';
+import { enablePushNotifications, getNotificationPermissionStatus } from '../utils/notifications';
 
 interface UserModalProps {
   visible: boolean;
   onClose: () => void;
   onResetChat?: () => void;
+  onClearChat?: () => void;
 }
 
 export const UserModal: React.FC<UserModalProps> = ({
   visible,
   onClose,
   onResetChat,
+  onClearChat,
 }) => {
   const { phone, serverUrl, updateServerUrl, logout } = useAuth();
   const [inputUrl, setInputUrl] = useState(serverUrl || 'http://10.131.110.142:3000');
+  const [notifStatus, setNotifStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
+  const [isEnablingNotifs, setIsEnablingNotifs] = useState(false);
+
+  useEffect(() => {
+    if (visible) {
+      getNotificationPermissionStatus().then((status) => {
+        setNotifStatus(status === 'granted' ? 'granted' : status === 'denied' ? 'denied' : 'unknown');
+      });
+    }
+  }, [visible]);
 
   const handleSave = () => {
     if (inputUrl.trim()) {
       updateServerUrl(inputUrl.trim());
     }
     onClose();
+  };
+
+  const handleEnableNotifications = async () => {
+    setIsEnablingNotifs(true);
+    const result = await enablePushNotifications();
+    setIsEnablingNotifs(false);
+    if (result.status === 'enabled') {
+      setNotifStatus('granted');
+    } else if (result.status === 'denied') {
+      setNotifStatus('denied');
+      Alert.alert(
+        'Notifications Off',
+        'You can enable them anytime from your phone Settings > Apps > ShowUp > Notifications.'
+      );
+    } else {
+      Alert.alert('Could Not Enable Notifications', result.message);
+    }
+  };
+
+  const handleClearChat = () => {
+    Alert.alert(
+      'Clear Chat?',
+      'This clears the conversation view on this device only. Your profile, streak, and progress are not affected.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Clear',
+          style: 'destructive',
+          onPress: () => {
+            onClearChat && onClearChat();
+            onClose();
+          },
+        },
+      ]
+    );
   };
 
   const handleResetConversation = () => {
@@ -98,6 +147,28 @@ export const UserModal: React.FC<UserModalProps> = ({
             <Text style={styles.saveButtonText}>Save & Apply</Text>
           </TouchableOpacity>
 
+          {/* Reminders / Push Notifications */}
+          <TouchableOpacity
+            style={[styles.notifButton, notifStatus === 'granted' && styles.notifButtonEnabled]}
+            onPress={handleEnableNotifications}
+            activeOpacity={0.85}
+            disabled={isEnablingNotifs || notifStatus === 'granted'}
+          >
+            {isEnablingNotifs ? (
+              <ActivityIndicator size="small" color={Colors.text} />
+            ) : notifStatus === 'granted' ? (
+              <>
+                <Bell size={17} color={Colors.primary} />
+                <Text style={styles.notifButtonTextEnabled}>Reminders Enabled</Text>
+              </>
+            ) : (
+              <>
+                <BellOff size={17} color={Colors.text} />
+                <Text style={styles.notifButtonText}>Allow Reminder Notifications</Text>
+              </>
+            )}
+          </TouchableOpacity>
+
           {/* Sign Out / Switch Account */}
           <TouchableOpacity
             style={styles.logoutButton}
@@ -108,6 +179,16 @@ export const UserModal: React.FC<UserModalProps> = ({
             activeOpacity={0.8}
           >
             <Text style={styles.logoutButtonText}>Sign Out / Switch Account</Text>
+          </TouchableOpacity>
+
+          {/* Clear Chat — local device view only, never touches saved progress */}
+          <TouchableOpacity
+            style={styles.clearChatButton}
+            onPress={handleClearChat}
+            activeOpacity={0.8}
+          >
+            <Trash2 size={15} color={Colors.textSecondary} />
+            <Text style={styles.clearChatButtonText}>Clear Chat (this device only)</Text>
           </TouchableOpacity>
 
           {/* Reset Onboarding / Chat */}
@@ -204,6 +285,46 @@ const styles = StyleSheet.create({
     fontSize: 14,
     fontWeight: '700',
     color: Colors.bgMain,
+    marginLeft: 6,
+  },
+  notifButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    borderRadius: BorderRadius.md,
+    height: 44,
+    marginBottom: Spacing.sm,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.08)',
+  },
+  notifButtonEnabled: {
+    backgroundColor: Colors.primarySubtle,
+    borderColor: Colors.borderGlow,
+  },
+  notifButtonText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: '#E2E8F0',
+    marginLeft: 8,
+  },
+  notifButtonTextEnabled: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.primary,
+    marginLeft: 8,
+  },
+  clearChatButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 10,
+    marginBottom: 2,
+  },
+  clearChatButtonText: {
+    fontSize: 12.5,
+    fontWeight: '600',
+    color: Colors.textSecondary,
     marginLeft: 6,
   },
   logoutButton: {

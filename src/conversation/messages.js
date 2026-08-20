@@ -32,6 +32,74 @@ function getProofInstruction(lang, activity, gestureText) {
   return `${gestureText}`;
 }
 
+// ── Meal reminder consent flow ──
+
+function mealReminderConsentQuestion(lang) {
+  if (lang === 'tl') return "Naan unga calorie tracking-ku reminder anupanuma? Breakfast, lunch, dinner, snacks ellathukum.\n\n1. Aama, reminder venum\n2. Illa, naane track pannikren";
+  if (lang === 'ta') return "நான் உங்கள் கலோரி டிராக்கிங்கிற்கு நினைவூட்டல் அனுப்பவா? காலை, மதிய, இரவு உணவு மற்றும் சிற்றுண்டிக்கு.\n\n1. ஆம், நினைவூட்டல் வேண்டும்\n2. இல்லை, நானே கண்காணிப்பேன்";
+  if (lang === 'hl') return "Kya main aapko calorie tracking ke liye reminder bhejun? Breakfast, lunch, dinner aur snacks ke liye.\n\n1. Haan, reminder chahiye\n2. Nahi, main khud track karunga";
+  if (lang === 'hi') return "क्या मैं आपको कैलोरी ट्रैकिंग के लिए रिमाइंडर भेजूं? नाश्ता, दोपहर, रात के खाने और स्नैक्स के लिए।\n\n1. हाँ, रिमाइंडर चाहिए\n2. नहीं, मैं खुद ट्रैक करूंगा";
+  return "Should I remind you to track your calories? I'll nudge you for breakfast, lunch, dinner, and snacks.\n\n1. Yes, send me reminders\n2. No, I'll track it myself";
+}
+
+function mealReminderTimesPrompt(lang) {
+  if (lang === 'tl') return "Seri! Eppa reminder venum sollunga — breakfast, lunch, dinner, and any snack times. (Eg: breakfast 8am, lunch 1pm, snack 4pm, dinner 8:30pm)";
+  if (lang === 'ta') return "சரி! எந்த நேரங்களில் நினைவூட்டல் வேண்டும் என்று சொல்லுங்கள் — காலை, மதியம், இரவு உணவு மற்றும் சிற்றுண்டி நேரங்கள். (எ.கா: காலை 8am, மதியம் 1pm, சிற்றுண்டி 4pm, இரவு 8:30pm)";
+  if (lang === 'hl') return "Great! Batao kis time reminder chahiye — breakfast, lunch, dinner aur snack times. (Jaise: breakfast 8am, lunch 1pm, snack 4pm, dinner 8:30pm)";
+  if (lang === 'hi') return "बढ़िया! बताइए किस समय रिमाइंडर चाहिए — नाश्ता, दोपहर, रात का खाना और स्नैक्स के समय। (जैसे: नाश्ता 8am, दोपहर 1pm, स्नैक 4pm, रात 8:30pm)";
+  return "Great! Tell me what times you want reminders for — breakfast, lunch, dinner, and any snack times. (e.g. breakfast 8am, lunch 1pm, snack 4pm, dinner 8:30pm)";
+}
+
+function mealReminderConfirmed(lang, timesSummary) {
+  if (lang === 'tl') return `Seri, lock pannitten! Reminders varum: ${timesSummary}. Ippo unga plan start pannalam!`;
+  if (lang === 'ta') return `சரி, பதிவு செய்துவிட்டேன்! நினைவூட்டல்கள் வரும்: ${timesSummary}. இப்போது உங்கள் திட்டத்தைத் தொடங்கலாம்!`;
+  if (lang === 'hl') return `Theek hai, lock kar diya! Reminders aayenge: ${timesSummary}. Ab plan shuru karte hain!`;
+  if (lang === 'hi') return `ठीक है, लॉक कर दिया! रिमाइंडर आएंगे: ${timesSummary}। अब आपका प्लान शुरू करते हैं!`;
+  return `Locked in! Reminders will come at: ${timesSummary}. Let's get your plan started!`;
+}
+
+function selfTrackingConsentQuestion(lang) {
+  if (lang === 'tl') return "Seri, reminder anupa maten. Aana neenga unga calories manually track pannuveengala? Sapta udane 'sapten 2 muttai, 1 dosa' mari message pannunga.\n\n1. Aama, naane track pannuven\n2. Illa, track panna maten";
+  if (lang === 'ta') return "சரி, நினைவூட்டல் அனுப்ப மாட்டேன். ஆனால் நீங்கள் உங்கள் கலோரிகளை நேரடியாகக் கண்காணிப்பீர்களா? சாப்பிட்டவுடன் 'சாப்பிட்டேன் 2 முட்டை, 1 தோசை' போல மெசேஜ் அனுப்புங்கள்.\n\n1. ஆம், நானே கண்காணிப்பேன்\n2. இல்லை, கண்காணிக்க மாட்டேன்";
+  if (lang === 'hl') return "Theek hai, reminder nahi bhejunga. Par kya aap khud apni calories track karenge? Khane ke baad bas 'maine khaya 2 ande, 1 roti' jaisa message bhej dena.\n\n1. Haan, main track karunga\n2. Nahi, track nahi karunga";
+  if (lang === 'hi') return "ठीक है, रिमाइंडर नहीं भेजूंगा। पर क्या आप खुद अपनी कैलोरी ट्रैक करेंगे? खाने के बाद बस 'मैंने खाया 2 अंडे, 1 रोटी' जैसा मैसेज भेज दें।\n\n1. हाँ, मैं ट्रैक करूंगा\n2. नहीं, ट्रैक नहीं करूंगा";
+  return "Got it, no reminders. But will you track your calories yourself? Just text me what you eat, like 'I ate 2 eggs and 1 roti'.\n\n1. Yes, I'll track it myself\n2. No, I won't track it";
+}
+
+function selfTrackingConfirmed(lang) {
+  if (lang === 'tl') return "Semma! Neenga sapta udane sollunga, naan calories calculate panni track pannuven.";
+  if (lang === 'ta') return "அருமை! நீங்கள் சாப்பிட்டவுடன் சொல்லுங்கள், நான் கலோரிகளைக் கணக்கிட்டு கண்காணிப்பேன்.";
+  if (lang === 'hl') return "Badhiya! Aap khane ke baad bata dena, main calories calculate karke track karunga.";
+  if (lang === 'hi') return "बढ़िया! आप खाने के बाद बता देना, मैं कैलोरी कैलकुलेट करके ट्रैक करूंगा।";
+  return "Perfect! Just tell me what you eat and I'll calculate and track the calories for you.";
+}
+
+function trackingDeclinedWarning(lang) {
+  if (lang === 'tl') return "Bro, calorie tracking illama unga progress kanakka mudiyathu — overeating or undereating theriyama poidum, adhu unga goal-a delay pannum illna health-a affect pannum.\n\n\"Neenga measure pannaadha ella, improve panna mudiyathu.\"\n\nOnce ninachu paarunga — reminders venumaa illa neenga track pannuveengala?";
+  if (lang === 'ta') return "கவனம், கலோரி டிராக்கிங் இல்லாமல் உங்கள் முன்னேற்றத்தைக் கண்காணிக்க முடியாது — அதிகமாக அல்லது குறைவாக சாப்பிடுவது தெரியாமல் போகலாம், இது உங்கள் இலக்கைத் தாமதப்படுத்தும் அல்லது உடல்நலத்தைப் பாதிக்கும்.\n\n\"நீங்கள் அளவிடாதவற்றை மேம்படுத்த முடியாது.\"\n\nமீண்டும் ஒரு முறை யோசியுங்கள் — நினைவூட்டல் வேண்டுமா அல்லது நீங்கள் கண்காணிப்பீர்களா?";
+  if (lang === 'hl') return "Bhai, calorie tracking ke bina progress track karna mushkil hai — overeating ya undereating pata hi nahi chalega, isse goal delay ho sakta hai ya health par asar pad sakta hai.\n\n\"Jo aap measure nahi karte, use improve nahi kar sakte.\"\n\nEk baar phir soch lo — reminder chahiye ya khud track karoge?";
+  if (lang === 'hi') return "ध्यान दें, कैलोरी ट्रैकिंग के बिना प्रगति नापना मुश्किल है — ज़्यादा या कम खाना पता ही नहीं चलेगा, इससे लक्ष्य में देरी हो सकती है या सेहत पर असर पड़ सकता है।\n\n\"जो आप नाप नहीं सकते, उसे सुधार नहीं सकते।\"\n\nएक बार फिर सोच लें — रिमाइंडर चाहिए या खुद ट्रैक करेंगे?";
+  return "Careful — without any calorie tracking, it's easy to unknowingly overeat or undereat, which can stall your progress or affect your health.\n\n\"What gets measured gets managed.\"\n\nTake a second look — want reminders, or will you track it yourself?";
+}
+
+// ── Nutrition plan confirmation loop ──
+
+function nutritionPlanConfirmPrompt(lang) {
+  if (lang === 'tl') return "Idhu nallа irukka? Reply \"confirm\" panni lock pannunga, illa enna change venumnu sollunga.";
+  if (lang === 'ta') return "இது நன்றாக இருக்கிறதா? \"confirm\" என்று பதிலளித்து பூட்டவும், அல்லது என்ன மாற்றம் வேண்டும் என்று சொல்லுங்கள்.";
+  if (lang === 'hl') return "Yeh theek laga? \"confirm\" reply karke lock kar do, ya batao kya change chahiye.";
+  if (lang === 'hi') return "क्या यह ठीक लगा? \"confirm\" लिखकर लॉक करें, या बताएं क्या बदलना है।";
+  return "Does this work for you? Reply \"confirm\" to lock it in, or tell me what you'd like to change.";
+}
+
+function trackingDeclinedFinal(lang) {
+  if (lang === 'tl') return "Seri, purinjukten. Naan idha pathi periodic-a nyabagapaduthuven. Nutrition pathi edhavadhu kekanumna, eppovum kekalam!";
+  if (lang === 'ta') return "சரி, புரிந்துகொண்டேன். நான் இதைப் பற்றி அவ்வப்போது நினைவூட்டுவேன். ஊட்டச்சத்து பற்றி எதுவும் கேட்க வேண்டுமானால், எப்போது வேண்டுமானாலும் கேளுங்கள்!";
+  if (lang === 'hl') return "Theek hai, samajh gaya. Main beech beech mein isके bare mein yaad dilata rahunga. Nutrition ke baare mein kabhi bhi pooch sakte ho!";
+  if (lang === 'hi') return "ठीक है, समझ गया। मैं बीच-बीच में इसके बारे में याद दिलाता रहूंगा। पोषण के बारे में कभी भी पूछ सकते हैं!";
+  return "Understood — I'll check in on this from time to time instead. Ask me anything about nutrition whenever you're ready!";
+}
+
 const QUESTIONS = {
   name: "Hey, I'm ShowUp — your AI fitness coach.\nI'll help you train, eat, recover, track progress, and adjust your plan as you improve.\n\nWhat should I call you?",
   goal: "What are you primarily trying to achieve right now?\n\n• Build muscle\n• Lose fat\n• Get stronger\n• Improve fitness / endurance\n• Something else",
@@ -42,7 +110,7 @@ const QUESTIONS = {
   schedule_time: "When do you usually train or prefer to do your workouts? (e.g. 7:00 AM, 7:00 PM)",
   diet_routine: "What does a normal day of eating look like for you? (Breakfast, lunch, dinner, snacks)",
   diet_restrictions: "Any foods you avoid, allergies, dietary restrictions, or meals you absolutely don't want to change?",
-  obstacles: "What usually gets in the way of your training consistency?\n\n• Time\n• Motivation\n• Consistency / Routine\n• Diet\n• Recovery / Fatigue\n• Nothing major / Something else",
+  obstacles: "What usually gets in the way of your training consistency?\n\n• Time\n• Motivation\n• I forget to go / lose track\n• Consistency / Routine\n• Diet\n• Recovery / Fatigue\n• Nothing major / Something else",
   sleep: "How many hours do you normally sleep each night?",
   injuries: "Any current injuries, pain, or physical limitations that affect your training? (If none, just say 'none')",
   commitment_ask: "Your plan is ready.\n\nOne thing I need from you to lock it in: what are you committing to consistently?\n\nExample: \"I will complete my scheduled workouts and log them honestly.\"",
@@ -69,44 +137,37 @@ function detectLanguage(answer) {
 const T = {
   en: {
     accountabilityIntro: ({ name }) =>
-      `ShowUp can also put something at stake.\n\n` +
-      `You choose an accountability deposit. If you complete your commitments, you get the eligible amount back. If you miss commitments under the rules you agreed to, part of the stake is forfeited.\n\n` +
-      `The goal isn't to make money from you.\n` +
-      `It's to make skipping harder than showing up.\n\n` +
-      `Your accountability setup:\n` +
-      `• Deposit: ₹${config.depositAmountInr} refundable stake\n` +
+      `One last thing before Day 1 — your ShowUp membership.\n\n` +
+      `Every member puts down a ₹${config.depositAmountInr} refundable deposit. It's not a fee — it's your own money, held as a commitment stake.\n` +
+      `Complete your pledge honestly and it comes back to you. Miss sessions beyond the free buffer and a small portion is forfeited. The goal is to make skipping harder than showing up.\n\n` +
+      `Your deposit rules:\n` +
+      `• Deposit: ₹${config.depositAmountInr} (refundable)\n` +
       `• Commitment period: 30 days\n` +
       `• Free misses: 2 buffer days (zero penalty)\n` +
-      `• Miss after free misses: ₹${config.slipPenaltyInr} per missed day\n` +
-      `• Platform fee: ₹${config.platformFeeInr} (upon completion)\n` +
-      `• Refund balance: ₹${config.fullPayoutInr} eligible for return upon completing your 30-day pledge\n` +
-      `• Verification: Daily photo + gesture proof\n` +
-      `• Exceptions: Documented illness/injury excused\n\n` +
-      `---\n` +
-      `Choose your mode:\n\n` +
-      `1. Accountability Mode (Recommended)\n` +
-      `Personalized coaching + financial commitment stake (₹${config.depositAmountInr} refundable deposit).\n\n` +
-      `2. Coach Mode (No-stake Mode)\n` +
-      `Full personalized coaching, workout tracking, and daily reminders without money at stake.\n\n` +
-      `Reply "1" for Accountability Mode or "2" for Coach Mode.`,
-    depositAsk: ({ name, amt }) =>
-      `Your accountability setup:\n\n` +
-      `• ₹${amt || config.depositAmountInr} deposit\n` +
-      `• ₹${config.fullPayoutInr} eligible for return\n` +
-      `• ₹${config.platformFeeInr} platform fee\n` +
-      `• 2 free misses\n` +
-      `• ₹${config.slipPenaltyInr} per additional qualifying miss\n\n` +
-      `Everything above is governed by the transparent rules agreed before payment.\n\n` +
-      `Deposit ₹${amt || config.depositAmountInr} to activate accountability:`,
+      `• Miss after free misses: ₹${config.slipPenaltyInr} per day forfeited\n` +
+      `• Platform fee: ₹${config.platformFeeInr} (deducted at completion)\n` +
+      `• Refund balance: ₹${config.fullPayoutInr} returned on completion\n\n` +
+      `Now choose your tier:\n\n` +
+      `1. Basic — ₹${config.pricing.basic.monthly}/month\n` +
+      `   Daily reminders, check-in verification, AI nutrition plan, doubt clearing\n\n` +
+      `2. Pro — ₹${config.pricing.pro.monthly}/month\n` +
+      `   Everything in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics\n\n` +
+      `Both tiers include the ₹${config.depositAmountInr} refundable deposit.\n` +
+      `Consistent members get ₹${config.pricing.consistencyDiscount}/month off their subscription.\n\n` +
+      `Reply "1" for Basic or "2" for Pro.`,
+    depositAsk: ({ name, amt, tier }) =>
+      `${tier === 'pro' ? 'Pro' : 'Basic'} tier selected.\n\n` +
+      `Pay your ₹${config.depositAmountInr} refundable deposit to activate Day 1:\n`,
     howItWorks: () =>
       "Daily check-in routine:\n" +
       "1. I message you before your chosen workout time with today's target.\n" +
       "2. You complete your workout and reply with one line of text and a photo showing the daily gesture.\n" +
       "3. Show up consistently, retain your deposit, and build unstoppable consistency.",
     paymentLink: (url) => `Deposit link:\n${url}\n\nOnce deposited, reply with "paid" to activate Day 1.`,
-    notPaidYet: () => `Deposit ₹${config.depositAmountInr} and reply "paid" to activate Day 1, or reply "2" to switch to free Coach Mode.`,
-    coachModeConfirmed: (time, activity) => `Coach Mode activated! Zero money at stake — purely focused on building your fitness habit.\n\nI will message you daily before ${time || '08:00'} for your ${activity || 'workout'} session.`,
-    paidConfirmed: (time, activity) => `Accountability deposit confirmed. Your 30-day pledge is officially active.\n\nI will message you daily before ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
+    notPaidYet: () => `Pay your ₹${config.depositAmountInr} deposit and reply "paid" to activate Day 1.`,
+    paidConfirmed: (time, activity, tier) =>
+      `Deposit confirmed. Your ${tier === 'pro' ? 'Pro' : 'Basic'} membership is now active.\n\n` +
+      `I will message you daily before ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
     day1Intro: (time, activity) => `You're set. Today is Day 1.\n\nI'll send your workout before training and ask you to log your results afterward.\n\nYour first job: show up.`,
     dailyPrompt: (activity, gestureText) => `Time to show up. Send your workout update and a photo showing ${getProofInstruction('en', activity, gestureText)}.`,
     needPhoto: (gestureText, activity) => `Please send your photo proof showing ${getProofInstruction('en', activity || 'gym', gestureText)} to complete your check-in.`,
@@ -154,8 +215,8 @@ const T = {
       `${name}, unga 30-day pledge summary:\n\n` +
       `• Trial: 14-day free access\n` +
       `• Refundable Deposit: ₹${amt}\n` +
-      `• Platform Fee: ₹25\n` +
-      `• Base Refund Balance: ₹275 (pledge mudicha udane)\n` +
+      `• Platform Fee: ₹30\n` +
+      `• Base Refund Balance: ₹270 (pledge mudicha udane)\n` +
       `• Free Buffer: 2 free strike days (zero penalty)\n` +
       `• Slip Penalty: ₹50 per missed day beyond free strikes\n\n` +
       `Lock-in panna ready-ah?`,
@@ -211,8 +272,8 @@ const T = {
       `${name}, உங்கள் 30-நாள் திட்ட விவரம்:\n\n` +
       `• இலவச சோதனை: 14 நாட்கள்\n` +
       `• திரும்பப்பெறும் டெபாசிட்: ₹${amt}\n` +
-      `• பிளாட்ஃபார்ம் கட்டணம்: ₹25\n` +
-      `• திரும்பப்பெறும் இருப்பு: ₹275\n` +
+      `• பிளாட்ஃபார்ம் கட்டணம்: ₹30\n` +
+      `• திரும்பப்பெறும் இருப்பு: ₹270\n` +
       `• இலவச ஸ்ட்ரைக்: 2 நாட்கள்\n` +
       `• அபராதம்: தவறவிடும் நாளுக்கு ₹50\n\n` +
       `தொடங்க தயாரா?`,
@@ -262,8 +323,8 @@ const T = {
       `${name}, आपके 30-दिन के संकल्प का विवरण:\n\n` +
       `• ट्रायल: 14-दिन का मुफ्त एक्सेस\n` +
       `• रिफंडेबल डिपॉजिट: ₹${amt}\n` +
-      `• प्लेटफॉर्म फीस: ₹25\n` +
-      `• रिफंड बैलेंस: ₹275 (30 दिन पूरे होने पर)\n` +
+      `• प्लेटफॉर्म फीस: ₹30\n` +
+      `• रिफंड बैलेंस: ₹270 (30 दिन पूरे होने पर)\n` +
       `• बफर: 2 फ्री स्ट्राइक दिन\n` +
       `• पेनल्टी: प्रति मिस दिन ₹50\n\n` +
       `शुरू करने के लिए तैयार हैं?`,
@@ -313,8 +374,8 @@ const T = {
       `${name}, aapka 30-day pledge breakdown:\n\n` +
       `• Trial: 14-day free access\n` +
       `• Refundable Deposit: ₹${amt}\n` +
-      `• Platform Fee: ₹25\n` +
-      `• Refund Balance: ₹275 (30 days complete hone par)\n` +
+      `• Platform Fee: ₹30\n` +
+      `• Refund Balance: ₹270 (30 days complete hone par)\n` +
       `• Free Buffer: 2 free strike days\n` +
       `• Slip Penalty: ₹50 per missed day beyond free strikes\n\n` +
       `Lock-in karne ke liye ready?`,
@@ -387,4 +448,12 @@ module.exports = {
   question,
   detectLanguage,
   getProofInstruction,
+  mealReminderConsentQuestion,
+  mealReminderTimesPrompt,
+  mealReminderConfirmed,
+  nutritionPlanConfirmPrompt,
+  selfTrackingConsentQuestion,
+  selfTrackingConfirmed,
+  trackingDeclinedWarning,
+  trackingDeclinedFinal,
 };

@@ -29,6 +29,12 @@ function getRandomGesture() {
 }
 
 function isTimeThreeHoursLater(checkinTime, currentTime) {
+  // Bug fix: this guard was missing while the two sibling functions below both have it.
+  // Without it, a user reaching this check with a null/undefined checkin_time (e.g. an
+  // active user whose check-in time was never fully set) throws on `.split`, which
+  // aborts tick() partway through its per-minute user loop and silently skips every
+  // reminder for the rest of that tick for all users processed after this one.
+  if (!checkinTime || !currentTime) return false;
   const [cHour, cMin] = checkinTime.split(':').map(Number);
   const [currHour, currMin] = currentTime.split(':').map(Number);
   const targetHour = (cHour + 3) % 24;
@@ -143,15 +149,13 @@ async function sweepAndPrompt(user, today, yesterday) {
   if (dayCount > config.pledgeDays) {
     const { calculatePledgePayout, calculateSubscriptionDiscount } = require('./utils/payout');
     const { payout } = calculatePledgePayout(user, missed);
-    const completedDays = config.pledgeDays - missed;
-    const cleanWeeks = Math.floor(completedDays / 7);
-    const discount = calculateSubscriptionDiscount(cleanWeeks, user.tier === 'pro_350' || user.tier === 'pro_120');
+    const discount = calculateSubscriptionDiscount(missed, user.tier === 'pro');
 
     let discountText = '';
     if (missed === 0) {
-      discountText = `Unlocked maximum ₹40/mo discount on your Month-2 subscription! (Standard: ₹79/mo down from ₹119 | Pro: ₹199/mo down from ₹239)`;
-    } else if (cleanWeeks > 0) {
-      discountText = `Unlocked ₹${discount.totalDiscount}/mo discount on your Month-2 subscription (Standard: ₹${119 - discount.totalDiscount}/mo | Pro: ₹${239 - discount.totalDiscount}/mo)`;
+      discountText = `Unlocked ₹${config.pricing.consistencyDiscount}/mo consistency discount on your Month-2 subscription! (Basic: ₹${config.pricing.basic.minAfterDiscount}/mo down from ₹${config.pricing.basic.monthly} | Pro: ₹${config.pricing.pro.minAfterDiscount}/mo down from ₹${config.pricing.pro.monthly})`;
+    } else {
+      discountText = `Month-2 subscription rate: Basic: ₹${config.pricing.basic.monthly}/mo | Pro: ₹${config.pricing.pro.monthly}/mo (maintain 0 slips next month to get the ₹${config.pricing.consistencyDiscount} consistency discount).`;
     }
 
     db.updateUser(user.id, {
@@ -366,24 +370,48 @@ function tick() {
       }
     }
 
-    // 7. Meal & Nutrition Check-in (09:00 Breakfast, 13:30 Lunch, 20:30 Dinner)
-    const mealSchedule = { '09:00': 'breakfast', '13:30': 'lunch', '20:30': 'dinner' };
-    if (mealSchedule[currentTime]) {
-      const mealType = mealSchedule[currentTime];
-      let remindersLog = {};
-      try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
-      const todayLogs = remindersLog[today] || [];
-      const reminderKey = `meal_${mealType}`;
+    // 7. Meal & Nutrition Check-in reminders — opt-in only (asked during onboarding),
+    // fired at each user's own configured breakfast/lunch/dinner/snack times rather
+    // than one fixed schedule for everyone. Users who declined reminders (or never
+    // finished the consent flow) get none here — see conversation/onboarding.js.
+    if (user.meal_reminder_optin === 'yes' && user.meal_reminder_times) {
+      let mealTimes = null;
+      try { mealTimes = JSON.parse(user.meal_reminder_times); } catch (e) { mealTimes = null; }
 
-      if (!todayLogs.includes(reminderKey)) {
-        gemini.generateMealReminder(user, mealType).then((msg) => {
-          return messaging.sendText(user.phone, msg);
-        }).catch((err) => {
-          console.error(`Scheduler error (${mealType} reminder) for user ${user.id}:`, err.message);
-        });
-        todayLogs.push(reminderKey);
-        remindersLog[today] = todayLogs;
-        db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
+      if (mealTimes) {
+        const dueMeals = [];
+        if (mealTimes.breakfast === currentTime) dueMeals.push({ key: 'meal_breakfast', mealType: 'breakfast' });
+        if (mealTimes.lunch === currentTime) dueMeals.push({ key: 'meal_lunch', mealType: 'lunch' });
+        if (mealTimes.dinner === currentTime) dueMeals.push({ key: 'meal_dinner', mealType: 'dinner' });
+        if (Array.isArray(mealTimes.snacks)) {
+          mealTimes.snacks.forEach((snackTime, idx) => {
+            if (snackTime === currentTime) dueMeals.push({ key: `meal_snack_${idx}`, mealType: 'snack' });
+          });
+        }
+
+        if (dueMeals.length > 0) {
+          let remindersLog = {};
+          try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
+          const todayLogs = remindersLog[today] || [];
+          let logsChanged = false;
+
+          for (const due of dueMeals) {
+            if (!todayLogs.includes(due.key)) {
+              gemini.generateMealReminder(user, due.mealType).then((msg) => {
+                return messaging.sendText(user.phone, msg);
+              }).catch((err) => {
+                console.error(`Scheduler error (${due.mealType} reminder) for user ${user.id}:`, err.message);
+              });
+              todayLogs.push(due.key);
+              logsChanged = true;
+            }
+          }
+
+          if (logsChanged) {
+            remindersLog[today] = todayLogs;
+            db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
+          }
+        }
       }
     }
 
@@ -409,13 +437,24 @@ function tick() {
     const weekday = scheduleService.getDayName(today, config.timezone);
     if (weekday === 'Sunday' && currentTime === '18:00' && user.last_weekly_summary_date !== today) {
       const adherence = scheduleService.getWeeklyAdherence(user, today, config.timezone);
-      const msg =
+      let msg =
         `Weekly Check-In\n\n` +
         `This week's progress: ${adherence.completed}/${adherence.target} workouts completed (${adherence.rescheduled} rescheduled, ${adherence.missed} missed).\n\n` +
         `1. How much do you weigh this morning?\n` +
         `2. How did your training go this week? (Completed as planned / Mostly completed / Struggled)\n` +
         `3. How was your average sleep & recovery?\n` +
         `4. Any noticeable changes in strength, measurements, appearance, energy, or appetite?`;
+
+      // For non-beginner gym/home_workout users, also ask what they're currently
+      // lifting — a beginner is still learning form/consistency, but past that,
+      // weekly working-weight check-ins are what actually drives progressive
+      // overload decisions rather than blindly bumping load every session.
+      const isStrengthActivity = user.activity === 'gym' || user.activity === 'home_workout';
+      const isNonBeginner = user.experience_level && user.experience_level !== 'beginner';
+      if (isStrengthActivity && isNonBeginner) {
+        msg += `\n5. What weights are you currently lifting on your main exercises? (e.g. Squat 40kg, Bench 30kg, Row 25kg)`;
+      }
+
       messaging.sendText(user.phone, msg).catch(e => console.error(e));
       db.updateUser(user.id, { last_weekly_summary_date: today });
     }
@@ -431,12 +470,13 @@ async function sendWeeklySummaries() {
       const missed = user.missed_count;
       const { payout } = calculatePledgePayout(user, missed);
       const daysLeft = Math.max(config.pledgeDays - user.day_count, 0);
-      const cleanWeeks = Math.floor(user.day_count / 7);
-      const discount = calculateSubscriptionDiscount(cleanWeeks, user.tier === 'pro_350' || user.tier === 'pro_120');
+      const discount = calculateSubscriptionDiscount(missed, user.tier === 'pro');
 
       let discountText = '';
-      if (missed === 0 && cleanWeeks > 0) {
-        discountText = `Unlocked ₹${discount.totalDiscount}/mo off Month-2 subscription (Standard: ₹${119 - discount.totalDiscount}/mo | Pro: ₹${239 - discount.totalDiscount}/mo)`;
+      if (missed === 0) {
+        discountText = `On track for ₹${config.pricing.consistencyDiscount}/mo consistency discount on Month-2 subscription (Basic: ₹${config.pricing.basic.minAfterDiscount}/mo | Pro: ₹${config.pricing.pro.minAfterDiscount}/mo)`;
+      } else {
+        discountText = `Current Month-2 subscription rate: Basic: ₹${config.pricing.basic.monthly}/mo | Pro: ₹${config.pricing.pro.monthly}/mo`;
       }
 
       db.updateUser(user.id, { last_weekly_summary_date: today });

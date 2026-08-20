@@ -59,6 +59,11 @@ const userColumnMigrations = [
   ['nutrition_plan_source', "ALTER TABLE users ADD COLUMN nutrition_plan_source TEXT DEFAULT 'none'"],
   ['nutrition_photo_ref', 'ALTER TABLE users ADD COLUMN nutrition_photo_ref TEXT'],
   ['language_locked', 'ALTER TABLE users ADD COLUMN language_locked TEXT DEFAULT NULL'],
+  ['meal_reminder_optin', 'ALTER TABLE users ADD COLUMN meal_reminder_optin TEXT DEFAULT NULL'],
+  ['meal_reminder_times', 'ALTER TABLE users ADD COLUMN meal_reminder_times TEXT DEFAULT NULL'],
+  ['self_tracking_optin', 'ALTER TABLE users ADD COLUMN self_tracking_optin TEXT DEFAULT NULL'],
+  ['tracking_decline_count', 'ALTER TABLE users ADD COLUMN tracking_decline_count INTEGER DEFAULT 0'],
+  ['goal_timeframe', 'ALTER TABLE users ADD COLUMN goal_timeframe TEXT DEFAULT NULL'],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -121,6 +126,8 @@ const USER_FIELDS = new Set([
   'last_day_before_reminder_date', 'last_same_day_reminder_date', 'last_post_workout_checkin_date',
   'post_workout_prompt_date', 'weekly_checkin_step', 'schedule_overrides',
   'nutrition_plan', 'nutrition_plan_source', 'nutrition_photo_ref',
+  'meal_reminder_optin', 'meal_reminder_times', 'self_tracking_optin', 'tracking_decline_count',
+  'goal_timeframe',
 ]);
 
 function updateUser(id, fields) {
@@ -228,10 +235,34 @@ function saveChatMessage(userId, role, text) {
   db.prepare('INSERT INTO chat_messages (user_id, phone, role, text) VALUES (?, ?, ?, ?)').run(userId, phone, role, text);
 }
 
-function getChatMessages(userId, limit = 15) {
+function getChatMessages(userId, limit = 20) {
   return db.prepare('SELECT role, text FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
     .all(userId, limit)
     .reverse();
+}
+
+// Full-shape version (id + timestamp) used by the mobile app to seed its local
+// on-device cache — getChatMessages() above only returns {role, text} for prompt building.
+function getRecentChatMessages(userId, limit = 100) {
+  return db.prepare('SELECT id, role, text, created_at FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
+    .all(userId, limit)
+    .reverse();
+}
+
+function savePushToken(userId, pushToken, platform) {
+  db.prepare(
+    `INSERT INTO device_tokens (user_id, push_token, platform)
+     VALUES (@userId, @pushToken, @platform)
+     ON CONFLICT(push_token) DO UPDATE SET user_id = @userId, platform = @platform`
+  ).run({ userId, pushToken, platform: platform || null });
+}
+
+function getPushTokensForUser(userId) {
+  return db.prepare('SELECT push_token FROM device_tokens WHERE user_id = ?').all(userId).map((r) => r.push_token);
+}
+
+function deletePushToken(pushToken) {
+  db.prepare('DELETE FROM device_tokens WHERE push_token = ?').run(pushToken);
 }
 
 // ── Memory layer helpers ──
@@ -519,4 +550,8 @@ module.exports = {
   updateScheduleOverride,
   createWeeklyReview,
   getWeeklyReviews,
+  savePushToken,
+  getPushTokensForUser,
+  deletePushToken,
+  getRecentChatMessages,
 };

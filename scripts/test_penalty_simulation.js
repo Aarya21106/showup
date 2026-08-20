@@ -168,7 +168,7 @@ async function runSimulation() {
   payoutInfo = calculatePledgePayout(user, user.missed_count);
   console.log(`\n📊 State: Streak: ${user.streak} | Total Misses: ${user.missed_count}`);
   console.log(`⚠️ Free Strikes Depleted: ${payoutInfo.strikesUsed}/${payoutInfo.freeStrikes} | Penalized Slips: ${payoutInfo.penalizedSlips}`);
-  console.log(`💰 Current Refund Balance: ₹${payoutInfo.payout} (Base ₹275 - 1×₹50 = ₹225)`);
+  console.log(`💰 Current Refund Balance: ₹${payoutInfo.payout} (Base ₹270 - 1×₹50 = ₹220)`);
 
   // 9. Day 7: Unexcused Miss #4 (Second Penalty: -₹50 -> ₹175)
   printDivider('DAY 7: Unexcused Miss #4 (Second Penalty -> -₹50 Penalty)');
@@ -179,7 +179,7 @@ async function runSimulation() {
   user = db.getUserById(user.id);
   payoutInfo = calculatePledgePayout(user, user.missed_count);
   console.log(`\n📊 State: Total Misses: ${user.missed_count} | Penalized Slips: ${payoutInfo.penalizedSlips}`);
-  console.log(`💰 Current Refund Balance: ₹${payoutInfo.payout} (Base ₹275 - 2×₹50 = ₹175)`);
+  console.log(`💰 Current Refund Balance: ₹${payoutInfo.payout} (Base ₹270 - 2×₹50 = ₹170)`);
 
   // 10. Day 8: Health Alert / Sickness (Zero Penalty)
   printDivider('DAY 8: Sickness / Health Alert (Fever of 102)');

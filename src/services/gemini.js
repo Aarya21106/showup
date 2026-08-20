@@ -6,7 +6,7 @@ const ENDPOINT = (model) =>
 
 class GeminiError extends Error {}
 
-async function callGemini({ parts, jsonMode, temperature, maxTokens }) {
+async function callGemini({ parts, jsonMode, temperature, maxTokens, useSearch }) {
   if (!config.geminiConfigured) {
     throw new GeminiError('GEMINI_API_KEY is not set');
   }
@@ -17,6 +17,21 @@ async function callGemini({ parts, jsonMode, temperature, maxTokens }) {
   };
   if (jsonMode) generationConfig.responseMimeType = 'application/json';
 
+  // Google Search grounding lets Gemini pull live web results into its answer.
+  // Not supported together with forced JSON output, so jsonMode wins if both are requested.
+  const enableSearch = Boolean(useSearch) && !jsonMode;
+  if (useSearch && jsonMode) {
+    console.warn('[Gemini] useSearch requested alongside jsonMode — ignoring useSearch (mutually exclusive).');
+  }
+
+  const requestBody = {
+    contents: [{ role: 'user', parts }],
+    generationConfig,
+  };
+  if (enableSearch) {
+    requestBody.tools = [{ google_search: {} }];
+  }
+
   let retries = 3;
   let delay = 2000;
 
@@ -24,10 +39,7 @@ async function callGemini({ parts, jsonMode, temperature, maxTokens }) {
     try {
       const res = await axios.post(
         ENDPOINT(config.gemini.model),
-        {
-          contents: [{ role: 'user', parts }],
-          generationConfig,
-        },
+        requestBody,
         {
           params: { key: config.gemini.apiKey },
           headers: { 'Content-Type': 'application/json' },
@@ -524,8 +536,18 @@ async function conductOnboardingInterview({ currentProfile, message, history, us
   const profileString = JSON.stringify(currentProfile, null, 2);
   const historyString = (history || []).map(h => `${h.role === 'user' ? 'User' : 'ShowUp'}: ${h.text}`).join('\n') || '(no prior history)';
   const coachCtx = user ? buildCoachContext(user) : '';
+
+  // Once goal + activity + a day count are known, ground the timetable assignment in a
+  // concrete, goal-appropriate split template rather than leaving it to pure improvisation —
+  // this is what keeps low day counts (e.g. 2 days/week) from producing a mismatched split.
+  const { formatSplitTemplateForPrompt } = require('../knowledge/splitTemplates');
+  const splitBlock = currentProfile.days_per_week
+    ? formatSplitTemplateForPrompt(currentProfile.activity, currentProfile.goal, currentProfile.days_per_week)
+    : '';
+
   const prompt = `You are ShowUp, an elite, direct, empathetic, and highly competent AI fitness coach texting on WhatsApp.
 ${coachCtx}
+${splitBlock ? '\n' + splitBlock + '\n' : ''}
 
 === MANDATORY INSTRUCTIONS ===
 1. FIRST, analyze the user's latest incoming message ("${message}") and extract/update all fields into "extracted":
@@ -535,10 +557,11 @@ ${coachCtx}
    - "activity": Main activity strictly as "gym", "home_workout", "running", "walking", or "cycling". (e.g. "lifting at gym" -> "gym", "home workouts" -> "home_workout", "run outdoors" -> "running", "cycling" -> "cycling", "brisk walking" -> "walking").
    - "workout_location": "gym", "home", or "outdoor".
    - "home_equipment": Any equipment/setup described (e.g. "dumbbells, pull-up bar", "bodyweight only / zero equipment", "treadmill", "road bicycle", "gym with free weights & machines").
-   - "height": Number in centimeters (e.g. "175 cm", "5ft 9" -> 175).
-   - "weight": Number in kilograms (e.g. "72 kg", "70").
+   - "height": Number in centimeters. Accept ANY format, with or without units: "175 cm", "5ft 9" -> 175, "5'9\"" -> 175, or a bare number like "175" with no unit at all. If the user gives height and weight together as two bare numbers (e.g. "175 70", "175, 70", "175 and 70"), the number in the 120-220 range is the height and the other is the weight. Convert feet/inches to cm.
+   - "weight": Number in kilograms. Accept ANY format, with or without units: "72 kg", "70kg", or a bare number like "70" with no unit at all — do not require "kg" to be present. If given in pounds/lbs, convert to kg (divide by 2.205). When height and weight are given together as a bare number pair (see above), the number in the 30-200 range is the weight.
    - "days_per_week": Integer 1-7 (e.g. "4 days", "5 days a week", "weekends only" -> 2).
-   - "timetable": JSON object with all 7 days ("Monday" through "Sunday"). If the user specifies their preferred workout days (e.g. "Monday and Thursday", "weekends only" -> Saturday & Sunday, or "Mon, Wed, Fri, Sat"), populate each chosen workout day with a specific routine focus matching their goal & activity (e.g. "Upper Body Hypertrophy", "Lower Body & Core", "Zone 2 Easy Run") and set all non-workout days to "Rest". If the user has NOT specified the exact days yet, set "timetable" to null.
+   - "goal_timeframe": The user's own stated target timeframe for their goal, as free text (e.g. "3 months", "12 weeks", "6 months", "no rush"). Only set this from the user's reply to the Step 6.5 timeframe question below — do not infer it from anything else.
+   - "timetable": JSON object with all 7 days ("Monday" through "Sunday"). If the user specifies their preferred workout days (e.g. "Monday and Thursday", "weekends only" -> Saturday & Sunday, or "Mon, Wed, Fri, Sat"), populate each chosen workout day using the REQUIRED SPLIT STRUCTURE above (if provided) — assign its session focuses in order, one per chosen workout day — and set all non-workout days to "Rest". If no REQUIRED SPLIT STRUCTURE was provided above, match the split to their goal & activity yourself. If the user has NOT specified the exact days yet, set "timetable" to null. CRITICAL: the number of non-Rest days MUST exactly equal days_per_week — never more, never fewer.
    - "checkin_time": Workout/checkin time in 24-hour "HH:MM" format (e.g. "7:00 AM" -> "07:00", "7 PM" -> "19:00", "18:30").
    - "diet_summary": Normal day of eating summary.
    - "allergy": Food allergies (e.g. "peanuts", "dairy", "eggs", "none").
@@ -552,46 +575,109 @@ ${coachCtx}
    - STRICT NO-EMOJIS RULE: Zero emojis anywhere in your response. No emojis of any kind.
    - ONE QUESTION AT A TIME. Do not overwhelm the user.
 
+   COACHING TONE RULE — CRITICAL:
+   Every reply MUST follow this two-part structure:
+   PART 1 — Acknowledge: One short, specific sentence that affirms what the user just said. Make it feel personal and coach-like. Use their name occasionally. Draw on motivational psychology — validate their choice, build belief, create momentum.
+   PART 2 — Ask: The next question, naturally flowing from the acknowledgment.
+   Never output a bare question with no acknowledgment (except for Step 1, which is the opening).
+
+   ACKNOWLEDGMENT EXAMPLES BY STEP:
+   - After user gives name → "Good to meet you, [Name]." then ask activity.
+   - After user says "gym" → "Gym training — that's where real strength is built, [Name]." then ask goal.
+   - After user says "home workout" → "Home workouts — no commute, no excuses. Smart call." then ask goal.
+   - After user says "running" → "Running builds more than just fitness — it builds mental toughness. Good choice." then ask goal.
+   - After user says "cycling" → "Cycling is one of the best full-body cardio disciplines out there. Let's make it count." then ask goal.
+   - After user says "walking" → "Walking is underrated. Daily movement compounds faster than people think." then ask goal.
+   - After user gives goal (e.g. "build muscle") → "Building muscle — a concrete, measurable goal. I can work with that." then ask experience.
+   - After user gives goal (e.g. "lose fat") → "Fat loss is about consistent effort over time — and that's exactly what I'm here to hold you to." then ask experience.
+   - After user says "beginner" → "Starting from scratch is actually an advantage — no bad habits to fix. We build it right from day one." then ask height/weight.
+   - After user says "experienced" → "Experienced is good — means we skip the basics and get into real programming." then ask height/weight.
+   - After user gives height/weight → "Got it. Those numbers give me everything I need to calibrate your targets precisely." then ask days/schedule.
+   - After user gives training days → "Locked in. [N] days a week is a [comment on the frequency — e.g. 'solid commitment' / 'great foundation to build on']." then ask goal timeframe (with the realistic estimate — see Step 6.5).
+   - After user gives their target timeframe → "Got it — [X] noted as your target." then ask time.
+   - After user gives time → "Training at [time] — [comment, e.g. 'early sessions before the world wakes up build discipline' / 'evening sessions after work are proven for strength output']." then ask equipment.
+   - After user gives equipment → "Noted. I'll build your plan around exactly what you have access to." then ask diet.
+   - After user gives diet → "Good. Your nutrition baseline tells me a lot about where the gaps are." then ask restrictions.
+   - After user gives restrictions → "Understood — those are non-negotiables and I'll respect them in every plan I build." then ask blocker.
+   - After user gives blocker → "Knowing your blocker upfront means we plan around it, not through it." then ask sleep.
+   - After user gives sleep hours → "Sleep is where the adaptation actually happens — [comment on their hours, e.g. '7 hours is solid' / '5 hours is a gap we need to work around']." then ask injuries.
+   - After user gives injuries → "Noted. [comment, e.g. 'We train around it, never through it' / 'No limitations — full program unlocked']." then deliver plan.
+
    SEQUENTIAL ORDER OF QUESTIONS:
    • Step 1 (Name missing):
-     Ask: "What should I call you?"
+     Ask: "Hey, I'm ShowUp — your AI fitness coach.\n\nWhat should I call you?"
 
-   • Step 2 (Goal missing):
-     Ask: "Good to meet you, [Name].\n\nWhat are you primarily trying to achieve right now?\n\n• Build muscle\n• Lose fat\n• Get stronger\n• Improve fitness / endurance\n• Something else"
+   • Step 2 (Activity / training type missing):
+     Acknowledge name, then ask:
+     "Good to meet you, [Name].\n\nWhat does your training look like right now?\n\n• Gym\n• Home workout\n• Running\n• Cycling\n• Walking\n• Starting fresh / not sure yet"
 
-   • Step 3 (Experience missing):
-     Ask: "How would you describe your current training experience?\n\n• Beginner\n• Some experience\n• Experienced"
+   • Step 3 (Goal missing):
+     Acknowledge their activity choice with a specific 1-line coach comment, then ask goal.
+     Adapt the goal options based on activity:
+     - activity = "gym" or "home_workout":
+       Goal options: "• Build muscle\n• Lose fat\n• Get stronger\n• Improve overall fitness\n• Something else"
+       Lead-in: "Now tell me — what are you training for?"
+     - activity = "running":
+       Goal options: "• Build endurance / run longer\n• Lose fat / improve body composition\n• Improve pace and speed\n• Build a consistent habit\n• Something else"
+       Lead-in: "What are you running towards?"
+     - activity = "cycling":
+       Goal options: "• Build distance and endurance\n• Lose fat / improve body composition\n• Improve speed and performance\n• Build a consistent habit\n• Something else"
+       Lead-in: "What's the target with your cycling?"
+     - activity = "walking":
+       Goal options: "• Lose fat / improve body composition\n• Build daily step count and stamina\n• Build a consistent active habit\n• Improve general health and energy\n• Something else"
+       Lead-in: "What are you aiming for?"
+     - activity = null:
+       Goal options: "• Build muscle\n• Lose fat\n• Get stronger\n• Improve fitness / endurance\n• Something else"
+       Lead-in: "What are you trying to achieve?"
 
-   • Step 4 (Activity / Current training context missing):
-     Ask: "What does your current training look like right now? (e.g. Gym lifting, home workouts, outdoor running, cycling, brisk walking, or starting fresh?)"
+   • Step 4 (Experience missing):
+     Acknowledge their goal with a specific 1-line coach validation, then ask:
+     "How long have you been training?\n\n• Beginner — just getting started\n• Some experience — trained on and off\n• Experienced — consistent training background"
 
    • Step 5 (Height & Weight missing):
-     Ask: "What is your height and current weight? (e.g. 175 cm, 70 kg)"
+     Acknowledge experience level, then ask:
+     "To calibrate your targets precisely — what's your height and current weight? (e.g. 175 cm, 70 kg)"
 
    • Step 6 (Days per week / Specific workout days missing or incomplete):
+     Acknowledge their metrics, then ask:
      - If neither days count nor specific days are known:
-       Ask: "Which days of the week do you want to train, and how many days? (e.g. 4 days: Mon, Tue, Thu, Sat or 2 days: Saturday & Sunday)"
-     - If days_per_week is known (e.g. 2 days) but specific days of the week are not yet known:
-       Ask: "Which [N] days of the week do you prefer to train? (e.g. Saturday and Sunday, or Monday and Thursday?)"
+       "How many days a week do you want to train, and which days work best for you? (e.g. 4 days — Mon, Tue, Thu, Sat)"
+     - If days_per_week is known but specific days are not:
+       "Which specific [N] days of the week work best for you? (e.g. Monday and Thursday, or Saturday and Sunday)"
+
+   • Step 6.5 (Goal timeframe missing — only ask once days_per_week is known):
+     Acknowledge their training days, then in the SAME message:
+     (a) State a realistic, honest ballpark estimate for their goal given their ACTUAL setup (activity + days_per_week + experience_level). Use this guidance to compute it:
+         - Muscle gain: at 1-2 days/week, expect visible initial changes in ~10-14 weeks and meaningful gains over ~6-9 months. At 3-4 days/week, visible changes in ~6-8 weeks, meaningful gains in ~4-6 months. At 5-6 days/week, visible changes in ~4-6 weeks, meaningful gains in ~3-5 months (experienced lifters gain slower than beginners despite more volume — mention this if experience_level is "experienced").
+         - Fat loss: sustainable, healthy fat loss is roughly 0.5-1% of bodyweight per week; visible changes typically appear in ~4-8 weeks regardless of days/week (diet matters more than training frequency here), with meaningful transformation in ~3-6 months.
+         - General fitness / strength / endurance: noticeable improvement in ~4-6 weeks, a settled habit and clear progress by ~8-12 weeks.
+         - Running/cycling/walking endurance goals: base fitness improves in ~4-6 weeks; a specific distance/pace target realistically takes ~8-16 weeks depending on the gap from their current level.
+         Always hedge honestly — say "roughly" / "typically" / "with consistency" and note that fewer training days means slower progress, not impossible progress.
+     (b) Then ask: "How many weeks or months would you like to set as your own target to work towards this?"
+     Do NOT skip part (a) — the estimate must come BEFORE asking their target, on the same message.
 
    • Step 7 (Checkin time missing):
-     Ask: "When do you usually train or prefer to do your workouts? (e.g. 7:00 AM, 7:00 PM)"
+     Acknowledge their schedule commitment, then ask:
+     "What time do you usually train? (e.g. 6:30 AM, 7:00 PM)"
 
    • Step 8 (Equipment / Setup context missing):
-     - If activity is gym: "What equipment or gym setup do you have access to?"
-     - If activity is home_workout: "What equipment do you have at home (dumbbells, resistance bands, pull-up bar, or zero equipment / bodyweight only)?"
-     - If activity is running: "Where do you run (outdoor roads/trails, running track, treadmill), and do you use any fitness tracking app (Strava, Nike Run Club, Garmin, Apple Health)?"
-     - If activity is cycling: "What cycling setup do you have (road/commuter bicycle, stationary gym cycle, trainer) and do you track distance with an app?"
-     - If activity is walking: "Where do you do your daily walks (outdoors, park, treadmill) and do you track steps/distance with a smartwatch or phone app?"
+     Acknowledge their training time, then ask based on activity:
+     - gym: "What's your gym setup like — free weights, machines, or a mix of both?"
+     - home_workout: "What do you have at home to train with? (e.g. dumbbells, resistance bands, pull-up bar, or just bodyweight)"
+     - running: "Where do you run — roads, trails, treadmill? And do you use any tracking app like Strava or Nike Run Club?"
+     - cycling: "What's your cycling setup — outdoor road bike, stationary gym cycle, or a smart trainer?"
+     - walking: "Where do you walk — outdoors, park, treadmill? And do you track your steps with a watch or phone?"
 
    • Step 9 (Normal Day of Eating missing):
-     Ask: "What does a normal day of eating look like for you? (Breakfast, lunch, dinner, snacks)"
+     Acknowledge their setup, then ask:
+     "Walk me through what a normal day of eating looks like for you — breakfast, lunch, dinner, any snacks."
 
    • Step 10 (Diet Restrictions & Non-negotiables missing):
      Ask: "Any foods you avoid, allergies, dietary restrictions, or meals you absolutely don't want to change?"
 
    • Step 11 (Obstacles / Consistency blocker missing):
-     Ask: "What usually gets in the way of your training consistency?\n\n• Time\n• Motivation\n• Consistency / Routine\n• Diet\n• Recovery / Fatigue\n• Nothing major / Something else"
+     Acknowledge their diet restrictions, then ask:
+     "What usually gets in the way of your training consistency?\n\n• Time\n• Motivation\n• I forget to go / lose track\n• Consistency / Routine\n• Diet\n• Recovery / Fatigue\n• Nothing major / Something else"
 
    • Step 12 (Sleep hours missing):
      Ask: "How many hours do you normally sleep each night?"
@@ -599,8 +685,8 @@ ${coachCtx}
    • Step 13 (Injuries / Limitations missing):
      Ask: "Any current injuries, pain, or physical limitations that affect your training? (If none, just say 'none')"
 
-   • Step 14 (ALL 14 COLLECTED -> STAGE 5 VALUE DELIVERY & TAILORED STARTING PLAN + STAGE 6 COMMITMENT PROMPT):
-     If name, goal, experience_level, activity, height, weight, days_per_week, timetable, checkin_time, equipment, diet, restrictions, obstacles, sleep, and injuries are ALL known:
+   • Step 15 (ALL 15 COLLECTED -> STAGE 5 VALUE DELIVERY & TAILORED STARTING PLAN + STAGE 6 COMMITMENT PROMPT):
+     If name, goal, experience_level, activity, height, weight, days_per_week, timetable, goal_timeframe, checkin_time, equipment, diet, restrictions, obstacles, sleep, and injuries are ALL known:
      Deliver the complete, psychologically powerful initial diagnosis & tailored starting plan:
 
      Structure:
@@ -611,6 +697,7 @@ ${coachCtx}
      • Activity: [Activity & Equipment]
      • Training: [N] days/week ([List chosen workout days, e.g. Saturday, Sunday]) at [Time]
      • Experience: [Level]
+     • Target Timeframe: [Their stated goal_timeframe]
      • Baseline Metrics: [Weight] kg | [Height] cm (Target Calories: ~[Cals] kcal | ~[Protein]g Protein)
      • Recovery: [Hours] hrs sleep/night
      • Health & Dietary Notes: [Restrictions / Allergy-safe / Limitations]
@@ -671,6 +758,7 @@ Respond strictly with a JSON object, no markdown fences:
     "height": number|null,
     "weight": number|null,
     "days_per_week": number|null,
+    "goal_timeframe": string|null,
     "timetable": {
       "Monday": string,
       "Tuesday": string,
@@ -730,7 +818,7 @@ async function classifyIntent(message) {
   if (/(?:weighed|weight(?:\s+is)?(?:\s*:)?|scale says|kg this morning|kg today)/i.test(msg) && /\d+/.test(msg)) {
     return 'WEIGHT_UPDATE';
   }
-  if (/(?:benched|squatted|deadlifted|overhead press|lat pulldown|dumbbell press|curls)/i.test(msg) && /\d+\s*(?:kg|reps|x|\*)/i.test(msg)) {
+  if (/(?:benched|squatted|deadlifted|overhead press|lat pulldown|dumbbell press|curls|\bsquat\b|\brow\b|\bdeadlift\b|\bbench\b|\bpress\b|\bpull.?down\b|\bpull.?up\b)/i.test(msg) && /\d+\s*(?:kg|reps|x|\*)/i.test(msg)) {
     return 'PERFORMANCE_LOG';
   }
   if (/(?:what should i eat|diet plan|food|protein|nutrition|calories|post workout meal|pre workout meal|eat after|eat before|how much protein|macro)/i.test(msg) && /(?:\?|should|suggest|how|what|can i|recommend)/i.test(msg)) {
@@ -781,9 +869,12 @@ Respond ONLY with a valid JSON object, no markdown fences:
 }
 
 async function parseDietLog(message) {
-  const prompt = `You are a nutrition database. The user wants to log food they ate.
-Analyze the text and extract all food items. For each item, estimate the weight in grams (if not specified, make a reasonable estimate) and calculate the calories, protein (g), carbs (g), and fat (g).
+  const { findFoodMatches, formatFoodMatchesForPrompt } = require('../knowledge/foodKnowledgeBase');
+  const kbBlock = formatFoodMatchesForPrompt(findFoodMatches(message));
 
+  const prompt = `You are a nutrition database specialized in Indian food. The user wants to log food they ate.
+Analyze the text and extract all food items. For each item, estimate the weight in grams (if not specified, make a reasonable estimate) and calculate the calories, protein (g), carbs (g), and fat (g).
+${kbBlock ? '\n' + kbBlock + '\n' : ''}
 User message: "${message}"
 
 Respond ONLY with a valid JSON object containing an array of items, no markdown fences:
@@ -830,16 +921,61 @@ Respond ONLY with a valid JSON object, no markdown fences:
   }
 }
 
+/**
+ * Parses a user's freeform reply about when they want meal reminders
+ * (e.g. "breakfast 8am, lunch 1pm, snack 4pm, dinner 8:30pm") into HH:MM (24h) times.
+ * Any meal not mentioned falls back to a sensible program default.
+ */
+async function parseMealReminderTimes(message, timezone) {
+  const prompt = `You are a scheduling assistant for a fitness coaching app in timezone ${timezone || 'Asia/Kolkata'}.
+The user was asked what times they want meal/calorie-tracking reminders. Parse their reply into 24-hour HH:MM times.
+
+User reply: "${message}"
+
+Respond ONLY with a valid JSON object, no markdown fences:
+{
+  "breakfast": "HH:MM"|null,
+  "lunch": "HH:MM"|null,
+  "dinner": "HH:MM"|null,
+  "snacks": ["HH:MM", ...]
+}
+Rules:
+- Only include a time if the user actually specified or clearly implied one for that meal.
+- "snacks" can contain zero or more times (any snack/evening-snack/tea-time mentions).
+- If the user gave a vague answer with no real times (e.g. "whenever", "you decide"), return sensible defaults: breakfast "09:00", lunch "13:30", dinner "20:30", snacks [].`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.1 });
+    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    const parsed = JSON.parse(cleaned);
+    return {
+      breakfast: parsed.breakfast || '09:00',
+      lunch: parsed.lunch || '13:30',
+      dinner: parsed.dinner || '20:30',
+      snacks: Array.isArray(parsed.snacks) ? parsed.snacks : [],
+    };
+  } catch (err) {
+    console.error('[Gemini] parseMealReminderTimes failed, using defaults:', err.message);
+    return { breakfast: '09:00', lunch: '13:30', dinner: '20:30', snacks: [] };
+  }
+}
+
 async function getExerciseSuggestions(user, message, muscleGroup) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const db = require('../db/db');
-  const chatHistory = db.getChatMessages(user.id, 10);
+  const chatHistory = db.getChatMessages(user.id, 20);
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
   const coachCtx = buildCoachContext(user);
 
+  const { lookupWorkoutKnowledge, formatKnowledgeForPrompt } = require('../knowledge/workoutKnowledgeBase');
+  const kbEntry = lookupWorkoutKnowledge(user.activity, user.experience_level, user.days_per_week, user.goal);
+  const kbBlock = kbEntry ? formatKnowledgeForPrompt(kbEntry) : '';
+  // No local KB entry for this activity (or an unrecognized one) — ground the answer with live web search instead.
+  const useSearch = !kbEntry;
+
   const prompt = `You are ShowUp, an elite, direct, no-BS fitness coach texting on WhatsApp.
 ${coachCtx}
-The user is asking for exercise suggestions or a routine for: "${muscleGroup}".
+${kbBlock ? kbBlock + '\n' : ''}The user is asking for exercise suggestions or a routine for: "${muscleGroup}".
 
 User Context:
 - Name: ${user.name}
@@ -876,10 +1012,11 @@ CRITICAL WORKOUT & FORMATTING RULES:
 4. SHORT & CLEAN:
    - Clean double line spacing between sections.
    - Keep total response concise (max 90-120 words). No conversational fluff.
+${useSearch ? '5. No local reference data was found for this activity/level — use Google Search to ground your recommendation in real, current exercise science before answering.' : ''}
 
 Reply ONLY in ${langName}.`;
 
-  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
+  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, useSearch });
   return sanitizeScriptForLanguage(text.trim(), user.language);
 }
 
@@ -889,13 +1026,16 @@ async function getDietSuggestions(user, message) {
   const db = require('../db/db');
   const fitness = require('../utils/fitness');
   const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
-  const chatHistory = db.getChatMessages(user.id, 10);
+  const chatHistory = db.getChatMessages(user.id, 20);
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
   const coachCtx = buildCoachContext(user);
-  
+
+  const { findFoodMatches, formatFoodMatchesForPrompt } = require('../knowledge/foodKnowledgeBase');
+  const kbBlock = formatFoodMatchesForPrompt(findFoodMatches(message));
+
   const prompt = `You are ShowUp, a direct, no-BS fitness coach and nutritionist texting on WhatsApp.
 ${coachCtx}
-The user is asking for diet advice or a meal plan. Here is their profile:
+${kbBlock ? kbBlock + '\n' : ''}The user is asking for diet advice or a meal plan. Here is their profile:
 - Name: ${user.name}
 - Height: ${user.height} cm | Weight: ${user.weight} kg | Goal: ${user.goal || 'muscle_gain'}
 - Calorie Budget: ${targetCalories} kcal/day | Target Protein: ~${macros.proteinGrams}g
@@ -1037,6 +1177,7 @@ Rules:
    Key Rules:
    • Hit your protein target (~${macros.proteinGrams}g) consistently each day.
    • Log your meals with ShowUp anytime for instant macro verification.
+3. DO NOT ask if this looks good, invite feedback, or ask any question at the end — end the message right after "Key Rules". A separate confirmation step is handled by the app, not by you.
 
 Reply ONLY in ${langName}.`;
 
@@ -1059,9 +1200,12 @@ async function parseUserProvidedDietPlan({ text, user }) {
   const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
   const coachCtx = buildCoachContext(user);
 
-  const prompt = `You are ShowUp, an elite AI fitness coach and nutritionist acknowledging and structuring a user-provided diet plan.
-${coachCtx}
+  const { findFoodMatches, formatFoodMatchesForPrompt } = require('../knowledge/foodKnowledgeBase');
+  const kbBlock = formatFoodMatchesForPrompt(findFoodMatches(text));
 
+  const prompt = `You are ShowUp, an elite AI fitness coach and nutritionist reviewing a user-provided diet plan.
+${coachCtx}
+${kbBlock ? '\n' + kbBlock + '\n' : ''}
 User Profile:
 - Name: ${user.name}
 - Goal: ${user.goal || 'muscle_gain'}
@@ -1070,15 +1214,16 @@ User Profile:
 "${text}"
 
 Task:
-1. Extract and clean up their provided meal schedule (Breakfast, Lunch, Snacks, Dinner).
-2. Estimate total calories and protein if foods are listed.
-3. Validate that their plan aligns with their target (~${macros.proteinGrams}g Protein).
-4. Return a clean, structured confirmation of their diet plan.
+1. Extract and clean up their provided meal schedule (Breakfast, Lunch, Snacks, Dinner) — use the reference knowledge base values above for any matching foods.
+2. Estimate total daily calories and protein from what they described.
+3. Compare against their target (~${targetCalories} kcal, ~${macros.proteinGrams}g protein). This person may be eating hostel/mess/canteen food with limited choice, not something they cooked themselves — be practical, not judgmental.
+4. If there is a MEANINGFUL gap (protein notably short, mostly carbs/fried food, few vegetables, etc.), you MUST include a "What to Add" and "What to Avoid" section with 2-4 SPECIFIC, easy-to-get items each (e.g. "2 boiled eggs after lunch", "a glass of milk or curd with dinner", "a handful of roasted chana as a snack" to add; "the extra fried side twice a week", "sugary tea between meals" to avoid). Suggestions must be realistic for someone with limited control over what's served (mess/hostel/canteen) — additions on top, not a meal plan overhaul.
+5. If their plan is already well-aligned with their target, skip the "What to Add"/"What to Avoid" section entirely — do not invent problems that aren't there.
 
 Rules:
 1. STRICT NO-EMOJIS RULE: 0 emojis.
 2. Structure:
-   Your Custom Nutrition Plan is locked in.
+   Here's your reviewed nutrition plan.
 
    Your Daily Meals:
    • Breakfast: [Summary of user's breakfast]
@@ -1086,17 +1231,72 @@ Rules:
    • Evening Snack: [Summary of user's snack]
    • Dinner: [Summary of user's dinner]
 
-   Coach Review:
-   • [1-2 concise observations on protein & calories alignment with their ${user.goal || 'fitness'} goal]
-   • Log your daily meals as you eat them to keep tracking consistent.
+   Estimated: ~[X] kcal | ~[Y]g Protein (Target: ~${targetCalories} kcal | ~${macros.proteinGrams}g)
+
+   [ONLY IF there's a meaningful gap, include this section:]
+   What to Add:
+   • [specific item]
+   • [specific item]
+
+   What to Avoid:
+   • [specific item]
+   • [specific item]
+3. DO NOT say the plan is "locked in", "final", or "saved" — DO NOT ask if this looks good or invite feedback — end the message right after the Add/Avoid section (or the Estimated line if no gap). A separate confirmation step is handled by the app, not by you.
 
 Reply ONLY in ${langName}.`;
 
   try {
-    const reply = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, maxTokens: 1200 });
+    const reply = await callGemini({ parts: [{ text: prompt }], temperature: 0.5, maxTokens: 1200 });
     return sanitizeScriptForLanguage(reply.trim(), user.language);
   } catch (err) {
-    return `Your Custom Nutrition Plan is locked in.\n\nYour Meals:\n${text}\n\nCoach Review:\n• Plan saved. Hit your daily protein target (~${macros.proteinGrams}g) consistently.\n• Log your daily meals as you eat them!`;
+    return `Here's your reviewed nutrition plan.\n\nYour Meals:\n${text}\n\nEstimated target: ~${targetCalories} kcal | ~${macros.proteinGrams}g Protein.\n\nHit your daily protein target consistently and log your meals as you eat them!`;
+  }
+}
+
+/**
+ * Revises an existing nutrition plan based on the user's requested change
+ * (e.g. "swap chicken for paneer", "less rice, more protein", "I don't eat fish").
+ * Used by the AWAITING_NUTRITION_PLAN_CONFIRMATION loop so a plan is never
+ * finalized without the user having a real chance to adjust it.
+ */
+async function refineNutritionPlan({ user, currentPlan, changeRequest }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const targetCalories = user.target_calories || Math.round((user.weight || 70) * 30) || 2000;
+  const fitness = require('../utils/fitness');
+  const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
+  const coachCtx = buildCoachContext(user);
+
+  const { findFoodMatches, formatFoodMatchesForPrompt } = require('../knowledge/foodKnowledgeBase');
+  const kbBlock = formatFoodMatchesForPrompt(findFoodMatches(changeRequest));
+
+  const prompt = `You are ShowUp, an elite AI fitness coach and nutritionist revising a nutrition plan per the user's request.
+${coachCtx}
+${kbBlock ? '\n' + kbBlock + '\n' : ''}
+User Profile:
+- Name: ${user.name} | Goal: ${user.goal || 'muscle_gain'}
+- Calorie Target: ~${targetCalories} kcal | Protein Target: ~${macros.proteinGrams}g
+- Allergies: ${user.allergy || 'none'}
+
+Current Plan:
+"${currentPlan}"
+
+User's requested change: "${changeRequest}"
+
+Task: Apply the requested change and return the FULL updated plan (not just the changed part), keeping the same calorie/protein targets and format as the current plan. Respect any allergies.
+
+Rules:
+1. STRICT NO-EMOJIS RULE: 0 emojis.
+2. Keep the same structural format as the current plan (Daily Targets, Meal Breakdown by meal, exact portions).
+3. DO NOT say the plan is "locked in", "final", or ask if this looks good — end after the last meal/rule line. A separate confirmation step is handled by the app.
+
+Reply ONLY in ${langName}.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.5, maxTokens: 1500 });
+    return sanitizeScriptForLanguage(text.trim(), user.language);
+  } catch (err) {
+    console.error('[Gemini] refineNutritionPlan failed:', err.message);
+    return currentPlan;
   }
 }
 
@@ -1122,12 +1322,13 @@ Task:
 1. Read and OCR the text/meals from the uploaded image.
 2. Structure the meals (Breakfast, Mid-morning, Lunch, Evening Snack, Dinner, Pre/Post workout).
 3. Extract portion sizes and key food items.
-4. Provide a clean confirmation acknowledging their custom diet chart.
+4. Estimate total calories and protein, and compare against their target (~${targetCalories} kcal, ~${macros.proteinGrams}g). This may be hostel/mess/canteen food with limited choice — be practical, not judgmental.
+5. If there is a MEANINGFUL gap (protein notably short, mostly carbs/fried food, few vegetables), include a "What to Add" and "What to Avoid" section with 2-4 specific, easy-to-get items each, realistic for someone with limited control over what's served. If the plan is already well-aligned, skip that section.
 
 Rules:
 1. STRICT NO-EMOJIS RULE: 0 emojis.
 2. Structure:
-   Diet Chart Received & Saved.
+   Here's your reviewed diet chart.
 
    Your Daily Meal Breakdown:
    • Breakfast: [Extracted items and portions]
@@ -1135,8 +1336,15 @@ Rules:
    • Snack / Pre-Workout: [Extracted items and portions]
    • Dinner: [Extracted items and portions]
 
-   Coach Note:
-   • [1-2 concise sentences on nutritional balance and how to track with ShowUp]
+   Estimated: ~[X] kcal | ~[Y]g Protein (Target: ~${targetCalories} kcal | ~${macros.proteinGrams}g)
+
+   [ONLY IF there's a meaningful gap:]
+   What to Add:
+   • [specific item]
+
+   What to Avoid:
+   • [specific item]
+3. DO NOT say the plan is "saved", "locked in", or "final" — DO NOT ask if this looks good. End after the last section. A separate confirmation step is handled by the app, not by you.
 
 Reply ONLY in ${langName}.`;
 
@@ -1151,7 +1359,7 @@ Reply ONLY in ${langName}.`;
     return sanitizeScriptForLanguage(reply.trim(), user.language);
   } catch (err) {
     console.warn('Fallback OCRing diet chart image:', err.message);
-    return `Diet Chart Received & Saved.\n\nI have logged your diet chart in your profile. Hit your daily protein target (~${macros.proteinGrams}g) consistently and log your daily meals as you eat them!`;
+    return `Here's your reviewed diet chart.\n\nEstimated target: ~${targetCalories} kcal | ~${macros.proteinGrams}g Protein.\n\nHit your daily protein target consistently and log your daily meals as you eat them!`;
   }
 }
 
@@ -1161,8 +1369,12 @@ async function conductTimetableInterview({ currentTimetable, message, goal, acti
   const historyString = (chatHistory || []).map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
   const coachCtx = user ? buildCoachContext(user) : '';
 
+  const { formatSplitTemplateForPrompt } = require('../knowledge/splitTemplates');
+  const splitBlock = daysPerWeek ? formatSplitTemplateForPrompt(activity, goal, daysPerWeek) : '';
+
   const prompt = `You are ShowUp, an elite, highly proactive human fitness coach and best friend texting on WhatsApp.
 ${coachCtx}
+${splitBlock ? '\n' + splitBlock + '\n' : ''}
 We are setting up the user's weekly workout timetable split, target muscle focus, and diet/allergy guidelines.
 
 User's activity: "${activity}"
@@ -1183,11 +1395,11 @@ User message: "${message}"
 INSTRUCTIONS (ACT LIKE AN EXPERT PROACTIVE HUMAN COACH):
 1. Analyze the user's message and determine their primary goal if mentioned ("muscle_gain", "weight_loss", "cardio", "general").
 2. Based on their goal, AUTOMATICALLY prescribe the target muscle focus and diet strategy without waiting for them to ask:
-   - For Muscle Gain: Prescribe heavy compound splits (e.g. Upper Body & Chest, Lower Body & Glutes, Arms & Shoulders). Prescribe high-protein nutrition guidance (e.g. 1.8g protein/kg, calorie surplus).
-   - For Weight Loss: Prescribe fat-burn cardio + full body muscle preservation splits. Prescribe high-protein calorie deficit nutrition.
-   - For Cardio / General: Prescribe stamina & functional strength splits.
+   - If a REQUIRED SPLIT STRUCTURE block is provided above, USE IT EXACTLY — assign its session focuses in order, one per workout day. Do not invent a different split.
+   - Otherwise: For Muscle Gain, prescribe heavy compound splits scaled to the day count (never force a 3-way split into fewer days — e.g. 2 days/week is Upper/Lower, not a compressed Push/Pull/Legs). For Weight Loss, prescribe fat-burn cardio + full body muscle preservation splits. For Cardio/General, prescribe stamina & functional strength splits.
+   - Prescribe high-protein nutrition guidance for Muscle Gain (e.g. 1.8g protein/kg, calorie surplus) or high-protein calorie deficit nutrition for Weight Loss.
 3. Propose a weekly timetable (Monday through Sunday):
-   - CRITICAL: Schedule MUST contain EXACTLY ${daysPerWeek || 3} workout days with specific muscle group focus (e.g., Saturday: Upper Body & Chest, Sunday: Lower Body & Glutes). All other days MUST be "Rest".
+   - CRITICAL: Schedule MUST contain EXACTLY ${daysPerWeek || 3} workout days with specific muscle group focus (e.g., Saturday: Upper Body & Chest, Sunday: Lower Body & Glutes). All other days MUST be "Rest". Never more, never fewer than ${daysPerWeek || 3} workout days.
    - ALIGN WITH USER DAYS: If they specified weekends or specific days, place workouts on those exact days.
    - REST IS IMPORTANT RULE: If the user asks for 7 days or zero rest, educate them that muscles rebuild and grow during rest days, and prescribe 4-5 workout days + 2 rest days.
    - If they confirm the schedule (e.g. "looks good", "yes", "confirm", "perfect", "done"), set "confirmed" to true.
@@ -1307,7 +1519,7 @@ STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
 async function handleGeneralQuery(user, message) {
   const db = require('../db/db');
-  const chatHistory = db.getChatMessages(user.id, 10);
+  const chatHistory = db.getChatMessages(user.id, 20);
   const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
   
   const timetableStr = user.timetable ? JSON.stringify(JSON.parse(user.timetable), null, 2) : 'No timetable set';
@@ -1315,9 +1527,17 @@ async function handleGeneralQuery(user, message) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const coachCtx = buildCoachContext(user);
 
+  // Only pull in workout knowledge / search grounding when the question actually looks exercise-related —
+  // most general queries (greetings, food, logistics) don't need it.
+  const looksLikeWorkoutQuestion = /(exercise|workout|training|gym|muscle|reps|sets|form|routine|split|cardio|run|walk|cycl|strength|weight lift|injur|pain|sore)/i.test(message);
+  const { lookupWorkoutKnowledge, formatKnowledgeForPrompt } = require('../knowledge/workoutKnowledgeBase');
+  const kbEntry = looksLikeWorkoutQuestion ? lookupWorkoutKnowledge(user.activity, user.experience_level, user.days_per_week, user.goal) : null;
+  const kbBlock = kbEntry ? formatKnowledgeForPrompt(kbEntry) : '';
+  const useSearch = looksLikeWorkoutQuestion && !kbEntry;
+
   const prompt = `You are ShowUp, a warm, direct, no-BS fitness coach texting your friend ${user.name} on WhatsApp.
 ${coachCtx}
-User message: "${message}"
+${kbBlock ? kbBlock + '\n' : ''}User message: "${message}"
 
 Profile summary for your internal awareness:
 - Name: ${user.name} | Activity: ${user.activity} | Goal: ${user.goal || 'general fitness'}
@@ -1332,11 +1552,65 @@ INSTRUCTIONS:
 4. OVERTRAINING / 7 DAYS / 2 HOURS / HARDCORE: If user mentions hardcore daily workouts or zero rest days, explain briefly that rest is when muscles grow, and prescribe 4-5 workout days + 2 rest days.
 5. FOOD / DIET / CALORIE QUESTIONS: Give exact grams and calories briefly (e.g. 200g Chicken = ~330 kcal, 40g Protein).
 6. PROACTIVE COMPLETION: If height/weight is missing, ask in 1 short line at the end.
+${useSearch ? '7. No local reference data covers this activity/level — use Google Search to ground your answer in real, current exercise science.' : ''}
 
 Reply ONLY in ${langName}.`;
 
-  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+  const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7, useSearch });
   return sanitizeScriptForLanguage(text.trim(), user.language);
+}
+
+/**
+ * Pro-tier voice chat: transcribes a recorded voice message and replies as the coach,
+ * in one call. Gemini accepts audio the same way it accepts images — as an inline_data
+ * part — so this reuses the same multimodal call shape as the photo-based flows.
+ * Returns both the transcription (saved as the user's chat message, since we only
+ * ever received audio bytes) and the coach's reply text.
+ */
+async function transcribeAndRespondToVoice({ user, audioBase64, mimeType }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const coachCtx = buildCoachContext(user);
+  const db = require('../db/db');
+  const chatHistory = db.getChatMessages(user.id, 20);
+  const historyString = chatHistory.map(m => `${m.role === 'user' ? 'User' : 'ShowUp'}: ${m.text}`).join('\n') || '(no prior history)';
+
+  const prompt = `You are ShowUp, a warm, direct, no-BS fitness coach. The user sent you a VOICE MESSAGE instead of typing — listen to the attached audio and respond as if they'd texted it.
+${coachCtx}
+
+Recent chat history:
+${historyString}
+
+Task:
+1. Transcribe exactly what the user said in the audio (their original spoken language — do not translate the transcription itself).
+2. Reply to them as their coach, following the same rules as any other message: ultra-short, friendly, max 25-45 words, zero emojis, notebook-style formatting for any workout/exercise content.
+
+Respond ONLY with a valid JSON object, no markdown fences:
+{
+  "transcription": "exact transcription of what they said",
+  "reply": "your coach reply in ${langName}"
+}`;
+
+  const parts = [
+    { text: "=== Voice Message Audio ===" },
+    { inline_data: { mime_type: mimeType || 'audio/aac', data: audioBase64 } },
+    { text: prompt },
+  ];
+
+  try {
+    const text = await callGemini({ parts, jsonMode: true, temperature: 0.5, maxTokens: 600 });
+    const cleaned = text.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    const parsed = JSON.parse(cleaned);
+    return {
+      transcription: parsed.transcription || '(voice message)',
+      reply: sanitizeScriptForLanguage((parsed.reply || '').trim(), user.language),
+    };
+  } catch (err) {
+    console.error('[Gemini] transcribeAndRespondToVoice failed:', err.message);
+    return {
+      transcription: '(voice message)',
+      reply: "Sorry, I couldn't quite catch that — could you try sending it again, or type it instead?",
+    };
+  }
 }
 
 // ── Memory layer Gemini functions ──
@@ -1519,16 +1793,16 @@ ${coachCtx}
 === SHOWUP PRICING & TERMS MASTER REFERENCE ===
 1. 🎁 14-Day Free Trial: First 14 days have ZERO subscription charges. Users pay only a ₹300 refundable deposit to lock in.
 2. 💰 Refundable Deposit: ₹300 (${config.depositAmountInr} INR).
-3. ⚙️ Platform Fee: ₹25 (${config.platformFeeInr} INR) charged for platform administration and server infrastructure, leaving a base refund pool of ₹275 (${config.fullPayoutInr} INR).
+3. ⚙️ Platform Fee: ₹30 (${config.platformFeeInr} INR) charged for platform administration and server infrastructure, leaving a base refund pool of ₹270 (${config.fullPayoutInr} INR).
 4. 🛡️ 2 Free Strikes Grace Rule: If the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty!).
-5. ⚠️ Slip Penalty: Beyond free strikes, each missed workout deducts ₹50 (${config.slipPenaltyInr} INR) from their ₹275 refund balance (floored at ₹0).
-6. 📋 Standard Plan vs Pro Plan (Starting Month 2):
-   - Standard Plan (₹119/month base):
-     * Includes daily photo check-in verification by AI, deposit protection, streak tracking, weekly progress summaries, accountability reminders.
-     * Streak Discount: Clean week (0 slips) earns ₹10 off per week (up to ₹40 off = ₹79/month!).
+5. ⚠️ Slip Penalty: Beyond free strikes, each missed workout deducts ₹50 (${config.slipPenaltyInr} INR) from their ₹270 refund balance (floored at ₹0).
+6. 📋 Basic Plan vs Pro Plan (Starting Month 2):
+   - Basic Plan (₹129/month base):
+     * Includes daily reminders, check-in verification (photo proof), AI nutrition plan, doubt clearing / general Q&A.
+     * Consistency Discount: 0 misses during the pledge earns a ₹10 discount (₹119/month!).
    - Pro Plan (₹239/month base):
-     * Includes EVERYTHING in Standard + AI-customized daily workout routines (upper body, lower body, glutes, push/pull/legs, cardio), muscle focus group guidance (chest, legs, shoulders, etc.), nutrition & calorie budget guidance, and personalized exercise coaching.
-     * Streak Discount: Clean week (0 slips) earns ₹10 off per week (up to ₹40 off = ₹199/month!).
+     * Includes EVERYTHING in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics.
+     * Consistency Discount: 0 misses during the pledge earns a ₹10 discount (₹229/month!).
 
 === USER CONTEXT ===
 Name: ${user.name || 'Friend'}
@@ -1548,8 +1822,8 @@ INSTRUCTIONS:
    - STRICT TONAL RULE: ALWAYS treat the user with utmost respect ("neenga", "unga", "ungalukku", "sollunga", "pannunga"). NEVER use "Dei", "Dey", "Da", "Di", "nee", "unakku", "unoda", or "podu".
    - If they ask in Tanglish ('tl'), respond in casual, respectful Tanglish using English/Latin alphabet.
    - If they ask in Hinglish ('hl'), respond in casual, respectful Hinglish using English/Latin alphabet.
-   - If they ask about the difference between ₹119 and ₹239 plans, clearly explain that ₹119 is standard accountability + AI check-ins, while ₹239 adds AI daily workout routines, exercise advice & diet guidance. Mention both get up to ₹40/mo streak discounts (₹79 & ₹199).
-   - If they ask about terms/deposit/strikes, explain the ₹300 deposit, ₹25 fee (₹275 base refund), 2 free strikes for >10 days, and ₹50 penalty.
+   - If they ask about the difference between Basic (₹129) and Pro (₹239) plans, clearly explain that Basic is ₹129 (reminders, verification, AI nutrition plan, doubt clearing), while Pro is ₹239 (adds diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and progress analytics). Mention both get a ₹10/mo consistency discount for zero misses (Basic becomes ₹119, Pro becomes ₹229).
+   - If they ask about terms/deposit/strikes, explain the ₹300 deposit, ₹30 fee (₹270 base refund), 2 free strikes for >10 days, and ₹50 penalty.
 2. Keep your answer friendly, respectful, and conversational (max 90 words).
 3. Always wrap up by reminding them that replying "paid" after paying the ₹300 deposit starts their 14-day free trial and 30-day pledge.`;
 
@@ -1747,9 +2021,14 @@ async function generateDay1Workout(user) {
     }
   }
 
+  const { lookupWorkoutKnowledge, formatKnowledgeForPrompt } = require('../knowledge/workoutKnowledgeBase');
+  const kbEntry = lookupWorkoutKnowledge(user.activity, user.experience_level, user.days_per_week, user.goal);
+  const kbBlock = kbEntry ? formatKnowledgeForPrompt(kbEntry) : '';
+  const useSearch = !kbEntry;
+
   const prompt = `You are ShowUp, an elite AI fitness coach delivering Day 1 kickoff of training.
 ${coachCtx}
-
+${kbBlock ? '\n' + kbBlock + '\n' : ''}
 User Profile:
 - Name: ${user.name}
 - Activity: ${user.activity || 'gym'}
@@ -1788,11 +2067,12 @@ Rules:
 
    Your first job: rest up and get ready for ${nextWorkoutDay}.
    `}
+${useSearch ? '3. No local reference data was found for this activity/level — use Google Search to ground the routine in real, current exercise science.' : ''}
 
 Reply ONLY in ${langName}.`;
 
   try {
-    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, useSearch });
     return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (err) {
     console.warn('Fallback generating Day 1 workout:', err.message);
@@ -1811,6 +2091,54 @@ Reply ONLY in ${langName}.`;
       return `You are set. Today is Day 1.\n\n${time} -- Full Body Calisthenics\n\n[1] Push-Ups - 3×10-12\n[2] Bodyweight Squats - 3×15\n[3] Plank - 3×30s\n\nI will send your workout before training and ask you to log your results afterward.\n\nYour first job: show up.`;
     }
     return `You are set. Today is Day 1.\n\n${time} -- Full Body Hypertrophy\n\n[1] Barbell Bench Press - 3×8-10\n[2] Barbell Back Squat - 3×8-10\n[3] Lat Pulldown - 3×10\n\nI will send your workout before training and ask you to log your results afterward.\n\nYour first job: show up.`;
+  }
+}
+
+/**
+ * Sent once, right after the full setup (nutrition plan confirmed + Day 1 delivered) —
+ * an honest reality check on what their chosen frequency can and can't do, and what's
+ * realistically achievable with consistency, referencing the timeframe they set for
+ * themselves during onboarding (goal_timeframe).
+ */
+async function generateRealisticExpectationsMessage(user) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const coachCtx = buildCoachContext(user);
+
+  const { lookupWorkoutKnowledge } = require('../knowledge/workoutKnowledgeBase');
+  const kbEntry = lookupWorkoutKnowledge(user.activity, user.experience_level, user.days_per_week, user.goal);
+  const kbNote = kbEntry
+    ? (kbEntry.kind === 'strength'
+        ? `Their prescribed split: ${kbEntry.days.length}-day ${kbEntry.days.map(d => d.focus).join('/')} at ${kbEntry.repScheme.setsReps}.`
+        : `Their prescribed plan: ${kbEntry.split}.`)
+    : '';
+
+  const prompt = `You are ShowUp, an honest, direct AI fitness coach. The user has just finished onboarding — their plan, split, and nutrition are all set up. Before they start, give them ONE honest, grounded reality check about what their specific setup can and can't do.
+${coachCtx}
+
+User's setup:
+- Activity: ${user.activity || 'gym'} | Goal: ${user.goal || 'general fitness'} | Experience: ${user.experience_level || 'beginner'}
+- Training frequency: ${user.days_per_week || 3} days/week
+- Their own stated target timeframe: ${user.goal_timeframe || 'not specified'}
+${kbNote}
+
+Task: Write ONE short, honest message covering, in this order:
+1. A direct, non-discouraging statement that ${user.days_per_week || 3} days/week means realistic progress takes patience and consistency — it will not be as fast as training more often, and skipping sessions will push the timeline out further. Do not be harsh or demotivating — be honest like a coach who respects them enough to not sugarcoat it.
+2. What IS realistically achievable with their frequency if they stay consistent, in relation to the timeframe they stated (${user.goal_timeframe || 'their target'}) — be specific to their goal (e.g. what visible/measurable progress looks like at that point), not vague encouragement.
+3. One sentence reinforcing that consistency at their chosen frequency beats sporadic higher frequency — showing up for every one of their ${user.days_per_week || 3} sessions matters more than the number itself.
+
+Rules:
+1. STRICT NO-EMOJIS RULE: 0 emojis.
+2. Keep it concise — 60-90 words. No headers, no bullet lists — a short, direct, human paragraph or two.
+3. Do not ask a question at the end — this is a statement, not a prompt for a reply.
+
+Reply ONLY in ${langName}.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.5, maxTokens: 500 });
+    return sanitizeScriptForLanguage(text.trim(), user.language);
+  } catch (err) {
+    console.error('[Gemini] generateRealisticExpectationsMessage failed:', err.message);
+    return `Quick honesty check: ${user.days_per_week || 3} days a week means real progress takes patience — it won't be as fast as training more often, and that's fine. Stay consistent with every one of your ${user.days_per_week || 3} sessions and you will see real, measurable progress toward your goal. Consistency at this frequency beats sporadic effort at a higher one — every time.`;
   }
 }
 
@@ -1885,6 +2213,7 @@ module.exports = {
   classifyIntent,
   parseDietLog,
   parseBurnedCalories,
+  parseMealReminderTimes,
   getExerciseSuggestions,
   getDietSuggestions,
   generateDietDeviationGuidance,
@@ -1894,6 +2223,7 @@ module.exports = {
   generateMealReminder,
   generateSleepRecoveryReminder,
   handleGeneralQuery,
+  transcribeAndRespondToVoice,
   buildCoachContext,
   extractProfileFacts,
   generateDailySummary,
@@ -1903,10 +2233,12 @@ module.exports = {
   parseFitnessAppScreenshot,
   generateCardioCoachFeedback,
   generateDay1Workout,
+  generateRealisticExpectationsMessage,
   generateMissedWorkoutFollowup,
   generateProgressFeedback,
   generateTailoredNutritionPlan,
   parseUserProvidedDietPlan,
   parseDietChartImage,
+  refineNutritionPlan,
   LANGUAGE_NAMES,
 };

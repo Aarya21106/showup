@@ -8,13 +8,15 @@ import {
   Text,
   ActivityIndicator,
 } from 'react-native';
-import { ArrowUp, Image as ImageIcon, MessageSquare, Utensils, Activity, Calendar } from 'lucide-react-native';
+import { ArrowUp, Image as ImageIcon, MessageSquare, Utensils, Activity, Calendar, Mic } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
 import { Colors, Spacing, BorderRadius } from '../theme/colors';
 
 interface FloatingInputBarProps {
   onSendMessage: (text: string) => void;
   onAttachPhoto: (caption?: string) => void;
+  onAttachVoice?: () => void;
+  canUseVoice?: boolean;
   isLoading?: boolean;
 }
 
@@ -29,6 +31,8 @@ const QUICK_ACTIONS = [
 export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
   onSendMessage,
   onAttachPhoto,
+  onAttachVoice,
+  canUseVoice = false,
   isLoading = false,
 }) => {
   const [text, setText] = useState('');
@@ -99,6 +103,18 @@ export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
           multiline
           maxLength={1000}
         />
+
+        {/* Voice Message Button — Pro only */}
+        {canUseVoice && text.trim().length === 0 && (
+          <TouchableOpacity
+            style={styles.cameraButton}
+            onPress={onAttachVoice}
+            activeOpacity={0.7}
+            accessibilityLabel="Record Voice Message"
+          >
+            <Mic size={19} color={Colors.primary} strokeWidth={2} />
+          </TouchableOpacity>
+        )}
 
         {/* Send Button */}
         <TouchableOpacity

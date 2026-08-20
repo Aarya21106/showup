@@ -7,6 +7,7 @@
  */
 
 const db = require('../db/db');
+const { sendPushToUser } = require('./pushNotifications');
 
 /**
  * Queue a text message for delivery to the native app.
@@ -25,6 +26,9 @@ async function sendText(to, body) {
         body,
         mediaUrl: null,
       });
+      // Fire-and-forget: reaches the device even when the app is backgrounded/closed,
+      // where the 3-second foreground poll wouldn't otherwise deliver this.
+      sendPushToUser(user.id, { title: 'ShowUp', body }).catch(() => {});
     } else {
       console.warn(`[Messaging] No user found for phone ${to}, message not queued.`);
     }
@@ -56,6 +60,7 @@ async function sendMedia(to, body, mediaUrl) {
         body,
         mediaUrl,
       });
+      sendPushToUser(user.id, { title: 'ShowUp', body }).catch(() => {});
     } else {
       console.warn(`[Messaging] No user found for phone ${to}, media message not queued.`);
     }

@@ -5,6 +5,11 @@ const scheduleService = require('../services/scheduleService');
 const config = require('../config');
 const { todayStr, addDaysStr } = require('../utils/date');
 
+// Bug 5 fix: langMap was defined inside handleSubstitutionOrModification but
+// referenced in handleHealthAlert where it was undeclared → ReferenceError crash.
+// Moved to module scope so both functions share the same definition.
+const langMap = (gemini && gemini.LANGUAGE_NAMES) || { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish', hl: 'Hinglish' };
+
 /**
  * Parses and logs exercise performance (sets, reps, weights, RPE).
  */
@@ -162,7 +167,6 @@ async function handleSubstitutionOrModification(user, text) {
     notes: text,
   });
 
-  const langMap = (gemini && gemini.LANGUAGE_NAMES) || { en: 'English', ta: 'Tamil', hi: 'Hindi', tl: 'Tanglish', hl: 'Hinglish' };
   const langName = langMap[user.language] || 'English';
   const prompt = `You are ShowUp, an elite AI fitness coach living by the core principle: "Show Up First, Optimize Second".
 User: ${user.name}

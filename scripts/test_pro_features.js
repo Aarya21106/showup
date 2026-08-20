@@ -31,7 +31,7 @@ async function testProFeatures() {
   console.log('Upgrading test user to Pro tier...');
   const updatedUser = db.updateUser(user.id, {
     name: 'ProTester',
-    tier: 'pro_120',
+    tier: 'pro',
     height: 180,
     weight: 75,
     target_muscle: 'chest',

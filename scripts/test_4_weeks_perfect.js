@@ -75,8 +75,8 @@ async function run4WeeksSimulation() {
     }),
   });
   user = db.getUserById(user.id);
-  console.log(`✓ User initialized: ${user.name} | Pledge: 30 Days | Deposit: ₹300 (Base Refund: ₹275)`);
-  console.log(`✓ Subscription Base: Standard = ₹${config.pricing.standard.base}/mo | Pro = ₹${config.pricing.pro.base}/mo`);
+  console.log(`✓ User initialized: ${user.name} | Pledge: 30 Days | Deposit: ₹300 (Base Refund: ₹270)`);
+  console.log(`✓ Subscription Base: Basic = ₹${config.pricing.basic.monthly}/mo | Pro = ₹${config.pricing.pro.monthly}/mo`);
 
   // Simulate Week 1 (Days 1 - 7)
   printDivider('WEEK 1 (Days 1 - 7): Perfect Attendance (0 Slips)');

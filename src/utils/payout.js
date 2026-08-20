@@ -4,14 +4,14 @@ const config = require('../config');
  * Calculates the payout at the end of a 30-day pledge period or for status checks.
  * Rules:
  * - Deposit: ₹300
- * - Platform fee: ₹25 (leaving ₹275 max refund)
+ * - Platform fee: ₹30 (leaving ₹270 max refund)
  * - If committed workout days > 10 in a month, user gets 2 FREE STRIKES (0 penalty for first 2 slips).
  * - Additional slips cost ₹50 each.
  */
 function calculatePledgePayout(user, missedCount = 0) {
   const deposit = config.depositAmountInr; // 300
-  const platformFee = config.platformFeeInr; // 25
-  const baseRefund = deposit - platformFee; // 275
+  const platformFee = config.platformFeeInr; // 30
+  const baseRefund = deposit - platformFee; // 270
   const penaltyPerSlip = config.slipPenaltyInr; // 50
 
   // Determine committed workout days in 30 days
@@ -49,21 +49,18 @@ function calculatePledgePayout(user, missedCount = 0) {
 }
 
 /**
- * Calculates month-2 subscription pricing based on weekly consistency.
- * For each week (7-day block) with 0 slips, award ₹10 discount (max ₹40 off).
- * - Standard: ₹119/mo base → ₹79/mo min
- * - Pro: ₹239/mo base → ₹199/mo min
+ * Calculates month-2 subscription pricing based on consistency.
+ * If user completes the pledge with 0 misses, they get ₹10 consistency discount.
+ * - Basic: ₹129/mo base → ₹119/mo discounted
+ * - Pro: ₹239/mo base → ₹229/mo discounted
  */
-function calculateSubscriptionDiscount(cleanWeeksCount = 0, isProTier = false) {
-  const discountPerWeek = config.weeklyDiscountInr; // 10
-  const maxDiscount = config.maxDiscountInr; // 40
-  const totalDiscount = Math.min(cleanWeeksCount * discountPerWeek, maxDiscount);
-
-  const basePrice = isProTier ? config.pricing.pro.base : config.pricing.standard.base; // 239 or 119
+function calculateSubscriptionDiscount(missedCount = 0, isProTier = false) {
+  const totalDiscount = missedCount === 0 ? config.pricing.consistencyDiscount : 0;
+  const basePrice = isProTier ? config.pricing.pro.monthly : config.pricing.basic.monthly;
   const finalPrice = basePrice - totalDiscount;
 
   return {
-    cleanWeeksCount,
+    missedCount,
     totalDiscount,
     basePrice,
     finalPrice,

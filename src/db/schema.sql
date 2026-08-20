@@ -180,4 +180,14 @@ CREATE TABLE IF NOT EXISTS weekly_reviews (
 
 CREATE INDEX IF NOT EXISTS idx_weekly_reviews_user ON weekly_reviews(user_id, week_number);
 
+CREATE TABLE IF NOT EXISTS device_tokens (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id       INTEGER NOT NULL REFERENCES users(id),
+  push_token    TEXT NOT NULL UNIQUE,          -- Expo push token, e.g. "ExponentPushToken[...]"
+  platform      TEXT,                          -- 'ios' | 'android'
+  created_at    TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(user_id);
+
 

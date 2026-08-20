@@ -129,7 +129,7 @@ async function simulateBodyTypeDiets() {
       checkin_time: '08:00',
       state: 'ACTIVE',
       deposit_status: 'paid',
-      tier: 'pro_350',
+      tier: 'pro',
       height: profile.height,
       weight: profile.weight,
       goal: profile.goal,

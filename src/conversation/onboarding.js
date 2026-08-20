@@ -7,6 +7,7 @@ const gemini = require('../services/gemini');
 const messaging = require('../services/messaging');
 const config = require('../config');
 const { todayStr } = require('../utils/date');
+const { isOffTopicQuestion } = require('../utils/intent');
 
 async function resolveImage(media) {
   if (!media) return null;
@@ -34,89 +35,106 @@ function promptNutritionChoice(user) {
   );
 }
 
-async function sendPlanAndDepositAsk(user) {
-  await messaging.sendText(user.phone, messages.t(user.language, 'depositAsk', {
-    name: user.name,
-    amt: config.depositAmountInr,
-    refund: config.fullPayoutInr,
-    penalty: config.slipPenaltyInr,
-    days: config.pledgeDays,
-  }));
-  if (config.paymentLinkUrl) {
-    await messaging.sendText(user.phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
-  } else {
-    console.warn('PAYMENT_LINK_URL is not set - skipped sending payment link to', user.phone);
+async function sendTierSelectionAsk(user) {
+  // Show deposit rules + Basic vs Pro tier choice
+  await messaging.sendText(user.phone, messages.t(user.language, 'accountabilityIntro', { name: user.name }));
+}
+
+/**
+ * Sends a nutrition plan and puts the user in the confirmation loop — the plan is
+ * NOT final at this point. state must already be states.AWAITING_NUTRITION_PLAN_CONFIRMATION
+ * on the same db.updateUser() call that saved nutrition_plan.
+ */
+async function deliverPlanForConfirmation(updatedUser, planText) {
+  await messaging.sendText(updatedUser.phone, planText);
+  await messaging.sendText(updatedUser.phone, messages.nutritionPlanConfirmPrompt(updatedUser.language));
+}
+
+/**
+ * Sends the Day 1 workout kickoff, then asks whether the user wants meal/calorie
+ * tracking reminders. Called once the nutrition plan has been confirmed — the caller
+ * is responsible for setting state: states.AWAITING_MEAL_REMINDER_CONSENT first.
+ */
+async function deliverDay1AndAskReminderConsent(updatedUser) {
+  const phone = updatedUser.phone;
+  try {
+    const day1 = await gemini.generateDay1Workout(updatedUser);
+    if (day1) await messaging.sendText(phone, day1);
+  } catch (err) {
+    console.error('Error generating Day 1 workout:', err);
   }
+
+  // Honest reality check on their chosen frequency vs. their stated target timeframe —
+  // sent once, right after the full setup is delivered, before anything else.
+  try {
+    const realityCheck = await gemini.generateRealisticExpectationsMessage(updatedUser);
+    if (realityCheck) await messaging.sendText(phone, realityCheck);
+  } catch (err) {
+    console.error('Error generating realistic expectations message:', err);
+  }
+
+  await messaging.sendText(phone, messages.mealReminderConsentQuestion(updatedUser.language));
 }
 
 async function handleOnboarding(user, body, media) {
   const phone = user.phone;
   const text = (body || '').trim();
 
-  // Stage 7 & 8: Awaiting Mode Selection
-  if (user.state === states.AWAITING_MODE_SELECTION) {
-    const lower = text.toLowerCase();
-    if (lower === '1' || lower.includes('accountability') || lower.includes('stake') || lower.includes('deposit')) {
-      // User chose Accountability Mode (financial commitment)
-      const updated = db.updateUser(user.id, {
-        accountability_mode: 'accountability',
-        state: states.AWAITING_PAYMENT,
-      });
-      await sendPlanAndDepositAsk(updated);
-      return;
-    } else if (lower === '2' || lower.includes('coach') || lower.includes('no-stake') || lower.includes('no stake') || lower.includes('free')) {
-      // User chose Free Coach Mode (zero stake)
-      const today = todayStr(config.timezone);
-      db.updateUser(user.id, {
-        accountability_mode: 'coach_only',
-        deposit_status: 'free',
-        started_at: today,
-        day_count: 0,
-        state: states.AWAITING_NUTRITION_CHOICE,
-      });
-      await messaging.sendText(phone, messages.t(user.language, 'coachModeConfirmed', user.checkin_time, user.activity));
-      await messaging.sendText(phone, promptNutritionChoice(user));
-      return;
-    } else {
-      // User asked a question about modes/terms/refunds
-      const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });
-      if (aiReply) {
-        await messaging.sendText(phone, aiReply + '\n\nReply "1" for Accountability Mode (₹300 refundable deposit) or "2" for Coach Mode (free tracking).');
-      } else {
-        await messaging.sendText(phone, 'Reply "1" for Accountability Mode (₹300 refundable deposit) or "2" for Coach Mode (free tracking).');
+  // Stage 7 & 8 removed: No more mode selection. Flow goes directly from
+  // AWAITING_COMMITMENT → AWAITING_PAYMENT with tier selection (Basic / Pro).
+  // The AWAITING_MODE_SELECTION state is no longer used.
+
+  // Stage 9: Awaiting Payment + Tier Selection
+  if (user.state === states.AWAITING_PAYMENT) {
+    const lower = text.toLowerCase().trim();
+
+    // --- Tier selection: user picks Basic or Pro ---
+    if ((lower === '1' || /\bbasic\b/i.test(lower)) && !user.tier) {
+      db.updateUser(user.id, { tier: 'basic' });
+      await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'basic' }));
+      if (config.paymentLinkUrl) {
+        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
       }
       return;
     }
-  }
 
-  // Stage 9: Awaiting Payment (for Accountability Mode)
-  if (user.state === states.AWAITING_PAYMENT) {
-    if (/\bpaid\b/i.test(text)) {
+    if ((lower === '2' || /\bpro\b/i.test(lower)) && !user.tier) {
+      db.updateUser(user.id, { tier: 'pro' });
+      await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'pro' }));
+      if (config.paymentLinkUrl) {
+        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
+      }
+      return;
+    }
+
+    // --- Payment confirmation ---
+    if (/\bpaid\b/i.test(lower)) {
+      // If user said 'paid' without picking a tier yet, default to basic
+      const activeTier = user.tier || 'basic';
       const today = todayStr(config.timezone);
-      db.updateUser(user.id, {
+      const updated = db.updateUser(user.id, {
+        accountability_mode: 'accountability',
         deposit_status: 'paid',
+        tier: activeTier,
         started_at: today,
         day_count: 0,
         state: states.AWAITING_NUTRITION_CHOICE,
       });
-      const timeStr = user.checkin_time || '08:00';
-      const actStr = user.activity || 'workout';
-      await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr));
+      const timeStr = updated.checkin_time || '08:00';
+      const actStr = updated.activity || 'workout';
+      await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr, activeTier));
       await messaging.sendText(phone, promptNutritionChoice(user));
       return;
-    } else if (text === '2' || /\b(switch to coach mode|coach mode|free|no-stake|no stake)\b/i.test(text)) {
-      // Switch from payment to free Coach Mode
-      const today = todayStr(config.timezone);
-      db.updateUser(user.id, {
-        accountability_mode: 'coach_only',
-        deposit_status: 'free',
-        started_at: today,
-        day_count: 0,
-        state: states.AWAITING_NUTRITION_CHOICE,
-      });
-      await messaging.sendText(phone, messages.t(user.language, 'coachModeConfirmed', user.checkin_time, user.activity));
-      await messaging.sendText(phone, promptNutritionChoice(user));
-      return;
+    }
+
+    // --- Question handling (Bug 4 fix preserved) ---
+    const questionCheck = isOffTopicQuestion(text);
+    if (questionCheck && questionCheck.isGymQ && !questionCheck.isPaymentQ) {
+      const aiReply = await gemini.handleGeneralQuery(user, text);
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply +
+          '\n\nWhenever you\'re ready: reply "1" for Basic or "2" for Pro, then send "paid" once your deposit is done.');
+      }
     } else {
       const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });
       if (aiReply) {
@@ -124,8 +142,8 @@ async function handleOnboarding(user, body, media) {
       } else {
         await messaging.sendText(phone, messages.t(user.language, 'notPaidYet'));
       }
-      return;
     }
+    return;
   }
 
   // Stage 9.5: Awaiting Nutrition Choice (AI Plan vs User's Own Plan)
@@ -145,25 +163,17 @@ async function handleOnboarding(user, body, media) {
         });
       } catch (err) {
         console.error('Error parsing diet chart image:', err);
-        planText = 'Diet Chart Received & Saved in your profile.';
+        planText = "Here's your reviewed diet chart.\n\nI have logged what I could read from the photo.";
       }
 
       const updated = db.updateUser(user.id, {
         nutrition_plan: planText,
         nutrition_plan_source: 'user_provided',
         nutrition_photo_ref: media.mediaUrl || 'uploaded_photo',
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
       });
 
-      await messaging.sendText(phone, planText);
-
-      // Deliver Day 1 kickoff
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) await messaging.sendText(phone, day1);
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await deliverPlanForConfirmation(updated, planText);
       return;
     }
 
@@ -175,24 +185,16 @@ async function handleOnboarding(user, body, media) {
         planText = await gemini.generateTailoredNutritionPlan(user);
       } catch (err) {
         console.error('Error generating tailored nutrition plan:', err);
-        planText = 'Your personalized nutrition target is locked in.';
+        planText = 'Here is your personalized nutrition target based on your goals.';
       }
 
       const updated = db.updateUser(user.id, {
         nutrition_plan: planText,
         nutrition_plan_source: 'ai_generated',
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
       });
 
-      await messaging.sendText(phone, planText);
-
-      // Deliver Day 1 kickoff
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) await messaging.sendText(phone, day1);
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await deliverPlanForConfirmation(updated, planText);
       return;
     } else if (lower === '2' || lower.includes('own') || lower.includes('my plan') || lower.includes('already') || lower.includes('have plan') || lower.includes('custom')) {
       // User has their own plan
@@ -208,27 +210,31 @@ async function handleOnboarding(user, body, media) {
         planText = await gemini.parseUserProvidedDietPlan({ text, user });
       } catch (err) {
         console.error('Error parsing user provided diet plan:', err);
-        planText = `Your Custom Nutrition Plan is locked in:\n${text}`;
+        planText = `Here's your reviewed nutrition plan:\n${text}`;
       }
 
       const updated = db.updateUser(user.id, {
         nutrition_plan: planText,
         nutrition_plan_source: 'user_provided',
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
       });
 
-      await messaging.sendText(phone, planText);
-
-      // Deliver Day 1 kickoff
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) await messaging.sendText(phone, day1);
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await deliverPlanForConfirmation(updated, planText);
       return;
     } else {
-      await messaging.sendText(phone, 'Reply "1" for a tailored AI Nutrition Plan, or "2" to provide your own nutrition plan (via text or photo).');
+      // Bug 6 fix: AWAITING_NUTRITION_CHOICE catch-all previously sent a canned
+      // "reply 1 or 2" response for all unrecognised input, including genuine questions.
+      // Now: questions get an AI answer first, then the prompt is re-appended.
+      const questionCheck = isOffTopicQuestion(text);
+      if (questionCheck) {
+        const aiReply = await gemini.handleGeneralQuery(user, text);
+        if (aiReply) {
+          await messaging.sendText(phone, aiReply +
+            '\n\nWhenever ready: Reply "1" for a customized AI Nutrition Plan, or "2" to share your own plan.');
+        }
+      } else {
+        await messaging.sendText(phone, 'Reply "1" for a tailored AI Nutrition Plan, or "2" to provide your own nutrition plan (via text or photo).');
+      }
       return;
     }
   }
@@ -248,25 +254,17 @@ async function handleOnboarding(user, body, media) {
         });
       } catch (err) {
         console.error('Error parsing diet chart image:', err);
-        planText = 'Diet Chart Received & Saved in your profile.';
+        planText = "Here's your reviewed diet chart.\n\nI have logged what I could read from the photo.";
       }
 
       const updated = db.updateUser(user.id, {
         nutrition_plan: planText,
         nutrition_plan_source: 'user_provided',
         nutrition_photo_ref: media.mediaUrl || 'uploaded_photo',
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
       });
 
-      await messaging.sendText(phone, planText);
-
-      // Deliver Day 1 kickoff
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) await messaging.sendText(phone, day1);
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await deliverPlanForConfirmation(updated, planText);
       return;
     } else {
       let planText;
@@ -274,40 +272,197 @@ async function handleOnboarding(user, body, media) {
         planText = await gemini.parseUserProvidedDietPlan({ text, user });
       } catch (err) {
         console.error('Error parsing user provided diet plan:', err);
-        planText = `Your Custom Nutrition Plan is locked in:\n${text}`;
+        planText = `Here's your reviewed nutrition plan:\n${text}`;
       }
 
       const updated = db.updateUser(user.id, {
         nutrition_plan: planText,
         nutrition_plan_source: 'user_provided',
-        state: states.ACTIVE,
+        state: states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
       });
 
-      await messaging.sendText(phone, planText);
-
-      // Deliver Day 1 kickoff
-      try {
-        const day1 = await gemini.generateDay1Workout(updated);
-        if (day1) await messaging.sendText(phone, day1);
-      } catch (err) {
-        console.error('Error generating Day 1 workout:', err);
-      }
+      await deliverPlanForConfirmation(updated, planText);
       return;
     }
   }
 
+  // Stage 9.65: Awaiting Nutrition Plan Confirmation — the plan shown above is not
+  // final until the user confirms it or asks for changes. This closes the gap where
+  // the plan text invited feedback ("let me know if you want swaps") but the flow
+  // moved straight on to Day 1 delivery without ever waiting for a reply.
+  if (user.state === states.AWAITING_NUTRITION_PLAN_CONFIRMATION) {
+    const lower = text.toLowerCase().trim();
+    const isConfirm = lower === '1' ||
+      /\b(confirm|confirmed|yes|yeah|yep|sure|ok|okay|good|great|perfect|fine|looks good|works|correct|seri|aama|haan|thik hai|theek hai)\b/i.test(lower);
+
+    if (isConfirm) {
+      const updated = db.updateUser(user.id, { state: states.AWAITING_MEAL_REMINDER_CONSENT });
+      await deliverDay1AndAskReminderConsent(updated);
+      return;
+    }
+
+    // A genuinely off-topic (non-diet) question gets answered, then the confirm prompt repeats.
+    const questionCheck = isOffTopicQuestion(text);
+    if (questionCheck && !questionCheck.isGymQ) {
+      const aiReply = await gemini.handleGeneralQuery(user, text);
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply + '\n\n' + messages.nutritionPlanConfirmPrompt(user.language));
+      }
+      return;
+    }
+
+    // Anything else (including diet/food-related replies) is treated as a change
+    // request against the current plan — e.g. "swap chicken for paneer", "less rice".
+    let updatedPlan;
+    try {
+      updatedPlan = await gemini.refineNutritionPlan({
+        user,
+        currentPlan: user.nutrition_plan || '',
+        changeRequest: text,
+      });
+    } catch (err) {
+      console.error('Error refining nutrition plan:', err);
+      await messaging.sendText(phone, "Sorry, I had trouble updating that — could you rephrase the change you want?");
+      return;
+    }
+
+    db.updateUser(user.id, { nutrition_plan: updatedPlan });
+    await deliverPlanForConfirmation(user, updatedPlan);
+    return;
+  }
+
+  // Stage 9.7: Awaiting Meal Reminder Consent — "Should I remind you to track your calories?"
+  if (user.state === states.AWAITING_MEAL_REMINDER_CONSENT) {
+    const lower = text.toLowerCase().trim();
+
+    if (lower === '1' || /\b(yes|yeah|yep|sure|ok|okay|haan|aama|seri|venum)\b/i.test(lower)) {
+      db.updateUser(user.id, { state: states.AWAITING_MEAL_REMINDER_TIMES });
+      await messaging.sendText(phone, messages.mealReminderTimesPrompt(user.language));
+      return;
+    }
+    if (lower === '2' || /\b(no|nope|nah|illa|nahi|venda)\b/i.test(lower)) {
+      db.updateUser(user.id, { meal_reminder_optin: 'no', state: states.AWAITING_SELF_TRACKING_CONSENT });
+      await messaging.sendText(phone, messages.selfTrackingConsentQuestion(user.language));
+      return;
+    }
+
+    const questionCheck = isOffTopicQuestion(text);
+    if (questionCheck) {
+      const aiReply = await gemini.handleGeneralQuery(user, text);
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply + '\n\n' + messages.mealReminderConsentQuestion(user.language));
+      }
+      return;
+    }
+
+    // Unclear reply — re-ask
+    await messaging.sendText(phone, messages.mealReminderConsentQuestion(user.language));
+    return;
+  }
+
+  // Stage 9.8: Awaiting Meal Reminder Times — user asked for reminders, now say when
+  if (user.state === states.AWAITING_MEAL_REMINDER_TIMES) {
+    let times;
+    try {
+      times = await gemini.parseMealReminderTimes(text, config.timezone);
+    } catch (err) {
+      console.error('Error parsing meal reminder times:', err);
+      times = { breakfast: '09:00', lunch: '13:30', dinner: '20:30', snacks: [] };
+    }
+
+    db.updateUser(user.id, {
+      meal_reminder_optin: 'yes',
+      meal_reminder_times: JSON.stringify(times),
+      state: states.ACTIVE,
+    });
+
+    const parts = [`Breakfast ${times.breakfast}`, `Lunch ${times.lunch}`, `Dinner ${times.dinner}`];
+    if (times.snacks && times.snacks.length > 0) parts.push(`Snacks ${times.snacks.join(', ')}`);
+    await messaging.sendText(phone, messages.mealReminderConfirmed(user.language, parts.join(' | ')));
+    return;
+  }
+
+  // Stage 9.9: Awaiting Self-Tracking Consent — user declined reminders, will they self-log?
+  if (user.state === states.AWAITING_SELF_TRACKING_CONSENT) {
+    const lower = text.toLowerCase().trim();
+
+    // Override: catches replies like "no I can't, that's why I need you to remind me" —
+    // the bare word "no" in there used to get misread as a second refusal (see below),
+    // even though the sentence is clearly asking for reminders. Any mention of
+    // reminders takes priority over yes/no keyword matching and routes straight back
+    // to the reminder-times flow.
+    const wantsRemindersAfterAll = /\b(remind|reminde?rs?|remaind(?:er|ers)?)\b/i.test(lower);
+    if (wantsRemindersAfterAll) {
+      db.updateUser(user.id, { tracking_decline_count: 0, state: states.AWAITING_MEAL_REMINDER_TIMES });
+      await messaging.sendText(phone, messages.mealReminderTimesPrompt(user.language));
+      return;
+    }
+
+    if (lower === '1' || /\b(yes|yeah|yep|sure|ok|okay|haan|aama|seri)\b/i.test(lower)) {
+      db.updateUser(user.id, { self_tracking_optin: 'yes', tracking_decline_count: 0, state: states.ACTIVE });
+      await messaging.sendText(phone, messages.selfTrackingConfirmed(user.language));
+      return;
+    }
+
+    if (lower === '2' || /\b(no|nope|nah|illa|nahi)\b/i.test(lower)) {
+      const declineCount = (user.tracking_decline_count || 0) + 1;
+      if (declineCount === 1) {
+        // First refusal: warn about the risk, then give them one more chance to reconsider
+        db.updateUser(user.id, { tracking_decline_count: declineCount });
+        await messaging.sendText(phone, messages.trackingDeclinedWarning(user.language));
+        return;
+      }
+      // Second refusal: respect the final decision and move on — no infinite nagging
+      db.updateUser(user.id, {
+        self_tracking_optin: 'no',
+        tracking_decline_count: declineCount,
+        state: states.ACTIVE,
+      });
+      await messaging.sendText(phone, messages.trackingDeclinedFinal(user.language));
+      return;
+    }
+
+    const questionCheck = isOffTopicQuestion(text);
+    if (questionCheck) {
+      const aiReply = await gemini.handleGeneralQuery(user, text);
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply + '\n\n' + messages.selfTrackingConsentQuestion(user.language));
+      }
+      return;
+    }
+
+    // Unclear reply — re-ask
+    await messaging.sendText(phone, messages.selfTrackingConsentQuestion(user.language));
+    return;
+  }
+
   // Stage 6: Awaiting User Commitment
   if (user.state === states.AWAITING_COMMITMENT) {
+    // Bug 1 fix preserved: off-topic questions are answered first; state does NOT advance.
+    const questionCheck = isOffTopicQuestion(text);
+    if (questionCheck) {
+      const isPaymentQ = questionCheck.isPaymentQ;
+      const aiReply = isPaymentQ
+        ? await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] })
+        : await gemini.handleGeneralQuery(user, text);
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply +
+          '\n\nWhenever you\'re ready, share your commitment statement.');
+      }
+      return;
+    }
+
     const commitment = text;
-    db.updateUser(user.id, {
+    const updated = db.updateUser(user.id, {
       commitment_text: commitment,
       vision_text: commitment,
-      state: states.AWAITING_MODE_SELECTION,
+      accountability_mode: 'accountability',  // single mode now
+      state: states.AWAITING_PAYMENT,
     });
-    
-    // Acknowledge self-generated commitment & present Stage 7 & 8
-    const introMsg = messages.t(user.language, 'accountabilityIntro', { name: user.name });
-    await messaging.sendText(phone, `Commitment locked in:\n"${commitment}"\n\n${introMsg}`);
+
+    // Acknowledge commitment, then immediately show tier selection
+    await messaging.sendText(phone, `Commitment locked in:\n"${commitment}"`);
+    await sendTierSelectionAsk(updated);
     return;
   }
 
@@ -328,6 +483,7 @@ async function handleOnboarding(user, body, media) {
     height: user.height || null,
     weight: user.weight || null,
     days_per_week: user.days_per_week !== null && user.days_per_week !== undefined ? user.days_per_week : null,
+    goal_timeframe: user.goal_timeframe || null,
     timetable: user.timetable || null,
     checkin_time: user.checkin_time || null,
     diet_summary: user.diet_summary || null,
@@ -376,11 +532,31 @@ async function handleOnboarding(user, body, media) {
   for (const key of Object.keys(currentProfile)) {
     if (extracted[key] !== undefined && extracted[key] !== null && extracted[key] !== '') {
       if (key === 'timetable') {
-        fieldsToUpdate.timetable = typeof extracted.timetable === 'object' ? JSON.stringify(extracted.timetable) : extracted.timetable;
+        // Kept as a raw object/string here — normalized to JSON string after validation below.
+        fieldsToUpdate.timetable = extracted.timetable;
       } else {
         fieldsToUpdate[key] = extracted[key];
       }
     }
+  }
+
+  // Validate/repair the timetable so its workout-day count always matches days_per_week
+  // exactly, using a goal-appropriate split template — the model doesn't always land on
+  // the correct day count purely from prose instructions (this was the root cause of
+  // mismatched splits at low day counts like 2 days/week).
+  if (fieldsToUpdate.timetable) {
+    const { ensureValidTimetable } = require('../knowledge/splitTemplates');
+    const finalActivity = fieldsToUpdate.activity || currentProfile.activity;
+    const finalGoal = fieldsToUpdate.goal || currentProfile.goal;
+    const finalDaysPerWeek = fieldsToUpdate.days_per_week !== undefined ? fieldsToUpdate.days_per_week : currentProfile.days_per_week;
+
+    let parsedTimetable = fieldsToUpdate.timetable;
+    if (typeof parsedTimetable === 'string') {
+      try { parsedTimetable = JSON.parse(parsedTimetable); } catch (e) { parsedTimetable = null; }
+    }
+
+    const validated = ensureValidTimetable(parsedTimetable, finalActivity, finalGoal, finalDaysPerWeek);
+    fieldsToUpdate.timetable = JSON.stringify(validated);
   }
 
   let updatedUser = user;
@@ -400,6 +576,7 @@ async function handleOnboarding(user, body, media) {
       Boolean(updatedUser.weight) &&
       updatedUser.days_per_week !== null &&
       updatedUser.days_per_week !== undefined &&
+      Boolean(updatedUser.goal_timeframe) &&
       Boolean(updatedUser.timetable && updatedUser.timetable !== '{}' && updatedUser.timetable !== 'null') &&
       Boolean(updatedUser.checkin_time) &&
       Boolean(updatedUser.diet_summary) &&
@@ -472,8 +649,11 @@ async function handleTimetableSetup(user, body) {
       user,
     });
 
+    const { ensureValidTimetable } = require('../knowledge/splitTemplates');
+    const validatedTimetable = ensureValidTimetable(result.timetable, user.activity, result.goal || user.goal, user.days_per_week);
+
     const fieldsToUpdate = {
-      timetable: JSON.stringify(result.timetable),
+      timetable: JSON.stringify(validatedTimetable),
       goal: result.goal,
     };
     if (result.target_muscle) fieldsToUpdate.target_muscle = result.target_muscle;
@@ -493,5 +673,4 @@ async function handleTimetableSetup(user, body) {
   }
 }
 
-module.exports = { handleOnboarding, sendPlanAndDepositAsk, handleTimetableSetup };
-
+module.exports = { handleOnboarding, sendTierSelectionAsk, handleTimetableSetup };
