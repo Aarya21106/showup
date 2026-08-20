@@ -7,10 +7,18 @@
 // the app was backgrounded or closed would silently wait in the outbox until the
 // user happened to reopen the app. Push notifications close that gap.
 
-const { Expo } = require('expo-server-sdk');
 const db = require('../db/db');
 
-const expo = new Expo();
+let expo = null;
+let Expo = null;
+
+async function initExpo() {
+  if (!expo) {
+    const mod = await import('expo-server-sdk');
+    Expo = mod.Expo || mod.default?.Expo || mod.default;
+    expo = new Expo();
+  }
+}
 
 /**
  * Sends a push notification to every device registered for a user.
@@ -20,6 +28,7 @@ const expo = new Expo();
  */
 async function sendPushToUser(userId, { title, body, data } = {}) {
   try {
+    await initExpo();
     const tokens = db.getPushTokensForUser(userId);
     if (!tokens || tokens.length === 0) return;
 
