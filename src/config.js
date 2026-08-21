@@ -17,6 +17,12 @@ const config = {
   },
 
   paymentLinkUrl: process.env.PAYMENT_LINK_URL || '',
+  paymentLinkUrlBasic: process.env.PAYMENT_LINK_URL_BASIC || '',
+  paymentLinkUrlPro: process.env.PAYMENT_LINK_URL_PRO || '',
+
+  google: {
+    webClientId: process.env.GOOGLE_WEB_CLIENT_ID || '',
+  },
 
   admin: {
     user: process.env.ADMIN_USER || 'admin',

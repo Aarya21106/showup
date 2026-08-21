@@ -1,8 +1,7 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
-  TextInput,
   TouchableOpacity,
   StyleSheet,
   ActivityIndicator,
@@ -11,46 +10,72 @@ import {
   ScrollView,
   Alert,
   SafeAreaView,
+  TextInput,
 } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
-import { Smartphone, ArrowRight, ShieldCheck, Server, Globe } from 'lucide-react-native';
+import Constants from 'expo-constants';
+import { ShieldCheck, Server } from 'lucide-react-native';
+import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { useAuth } from '../context/AuthContext';
-import { Colors } from '../theme/colors';
 
 interface LoginScreenProps {
   onOtpSent: () => void;
 }
 
-export const LoginScreen: React.FC<LoginScreenProps> = ({ onOtpSent }) => {
-  const { sendOtp, serverUrl, updateServerUrl, isOnline, checkConnection } = useAuth();
-  const [phoneNumber, setPhoneNumber] = useState('');
+const GOOGLE_WEB_CLIENT_ID = Constants.expoConfig?.extra?.googleWebClientId as string | undefined;
+
+let googleConfigured = false;
+function ensureGoogleConfigured() {
+  if (googleConfigured) return;
+  if (GOOGLE_WEB_CLIENT_ID && !GOOGLE_WEB_CLIENT_ID.startsWith('REPLACE_WITH_')) {
+    GoogleSignin.configure({ webClientId: GOOGLE_WEB_CLIENT_ID });
+    googleConfigured = true;
+  }
+}
+
+export const LoginScreen: React.FC<LoginScreenProps> = () => {
+  const { loginWithGoogle, serverUrl, updateServerUrl, isOnline, checkConnection } = useAuth();
   const [loading, setLoading] = useState(false);
   const [showServerConfig, setShowServerConfig] = useState(false);
   const [customUrl, setCustomUrl] = useState(serverUrl);
 
-  const handleSendOtp = async () => {
-    const cleaned = phoneNumber.replace(/\D/g, '');
-    if (cleaned.length < 10) {
-      Alert.alert('Invalid Phone Number', 'Please enter a valid 10-digit mobile number.');
+  useEffect(() => {
+    ensureGoogleConfigured();
+  }, []);
+
+  const handleGoogleSignIn = async () => {
+    if (!GOOGLE_WEB_CLIENT_ID || GOOGLE_WEB_CLIENT_ID.startsWith('REPLACE_WITH_')) {
+      Alert.alert(
+        'Google Sign-In Not Configured',
+        'The app is missing its Google Web Client ID. Set extra.googleWebClientId in app.json.'
+      );
       return;
     }
 
     try {
       setLoading(true);
       Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Medium);
+      ensureGoogleConfigured();
 
-      const formatted = cleaned.length === 10 ? `+91${cleaned}` : `+${cleaned}`;
-      const res = await sendOtp(formatted);
+      await GoogleSignin.hasPlayServices();
+      const response = await GoogleSignin.signIn();
 
-      if (res.success) {
-        Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
-        onOtpSent();
-      } else {
-        Alert.alert('Error', res.message || 'Failed to send OTP. Please check your connection.');
+      if (response.type !== 'success' || !response.data?.idToken) {
+        setLoading(false);
+        return; // user cancelled or dismissed
       }
+
+      await loginWithGoogle(response.data.idToken);
+      Haptics.notificationAsync(Haptics.NotificationFeedbackType.Success);
     } catch (err: any) {
-      Alert.alert('Connection Error', err.response?.data?.error || err.message || 'Failed to connect to ShowUp server.');
+      if (err?.code === statusCodes.SIGN_IN_CANCELLED) {
+        // silent — user backed out
+      } else if (err?.code === statusCodes.IN_PROGRESS) {
+        // a sign-in is already in flight — ignore
+      } else {
+        Alert.alert('Sign-In Failed', err?.message || 'Could not sign in with Google. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -89,50 +114,27 @@ export const LoginScreen: React.FC<LoginScreenProps> = ({ onOtpSent }) => {
 
           {/* Login Card */}
           <View style={styles.card}>
-            <Text style={styles.cardHeading}>Enter Mobile Number</Text>
+            <Text style={styles.cardHeading}>Sign In</Text>
             <Text style={styles.cardSubheading}>
-              We will send you a 6-digit verification code to log in or create your profile.
+              Sign in with your Google account to log in or create your profile.
             </Text>
 
-            {/* Phone Input */}
-            <View style={styles.inputRow}>
-              <View style={styles.countryCodeBadge}>
-                <Text style={styles.countryCodeText}>🇮🇳 +91</Text>
-              </View>
-              <TextInput
-                style={styles.phoneInput}
-                placeholder="98765 43210"
-                placeholderTextColor="#64748B"
-                keyboardType="phone-pad"
-                maxLength={10}
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                autoFocus={true}
-              />
-            </View>
-
-            {/* Submit Button */}
             <TouchableOpacity
-              style={[styles.submitButton, loading && styles.buttonDisabled]}
-              onPress={handleSendOtp}
+              style={[styles.googleButton, loading && styles.buttonDisabled]}
+              onPress={handleGoogleSignIn}
               disabled={loading}
-              activeOpacity={0.8}
+              activeOpacity={0.85}
             >
-              <LinearGradient
-                colors={['#10B981', '#059669']}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
-                style={styles.buttonGradient}
-              >
-                {loading ? (
-                  <ActivityIndicator color="#FFFFFF" />
-                ) : (
-                  <>
-                    <Text style={styles.submitButtonText}>Get Verification Code</Text>
-                    <ArrowRight size={18} color="#FFFFFF" style={{ marginLeft: 8 }} />
-                  </>
-                )}
-              </LinearGradient>
+              {loading ? (
+                <ActivityIndicator color="#1F2937" />
+              ) : (
+                <>
+                  <View style={styles.googleIconCircle}>
+                    <Text style={styles.googleIconText}>G</Text>
+                  </View>
+                  <Text style={styles.googleButtonText}>Continue with Google</Text>
+                </>
+              )}
             </TouchableOpacity>
           </View>
 
@@ -257,59 +259,40 @@ const styles = StyleSheet.create({
     lineHeight: 18,
     marginBottom: 20,
   },
-  inputRow: {
+  googleButton: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#0F172A',
-    borderRadius: 16,
-    borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
-    marginBottom: 20,
-    overflow: 'hidden',
-  },
-  countryCodeBadge: {
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    borderRightWidth: 1,
-    borderRightColor: 'rgba(255, 255, 255, 0.08)',
-    backgroundColor: 'rgba(255, 255, 255, 0.03)',
-  },
-  countryCodeText: {
-    color: '#E2E8F0',
-    fontWeight: '600',
-    fontSize: 15,
-  },
-  phoneInput: {
-    flex: 1,
-    paddingHorizontal: 14,
-    paddingVertical: 14,
-    fontSize: 17,
-    color: '#F8FAFC',
-    fontWeight: '600',
-    letterSpacing: 1,
-  },
-  submitButton: {
-    borderRadius: 16,
-    overflow: 'hidden',
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 6 },
-    shadowOpacity: 0.3,
-    shadowRadius: 12,
-    elevation: 4,
-  },
-  buttonGradient: {
-    flexDirection: 'row',
     justifyContent: 'center',
-    alignItems: 'center',
+    backgroundColor: '#FFFFFF',
+    borderRadius: 16,
     paddingVertical: 15,
-  },
-  submitButtonText: {
-    color: '#FFFFFF',
-    fontSize: 16,
-    fontWeight: '700',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 3,
   },
   buttonDisabled: {
     opacity: 0.6,
+  },
+  googleIconCircle: {
+    width: 22,
+    height: 22,
+    borderRadius: 11,
+    backgroundColor: '#4285F4',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginRight: 10,
+  },
+  googleIconText: {
+    color: '#FFFFFF',
+    fontSize: 13,
+    fontWeight: '800',
+  },
+  googleButtonText: {
+    color: '#1F2937',
+    fontSize: 16,
+    fontWeight: '700',
   },
   serverToggle: {
     flexDirection: 'row',

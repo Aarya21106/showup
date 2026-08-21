@@ -1,10 +1,13 @@
 const express = require('express');
 const admin = require('firebase-admin');
+const { OAuth2Client } = require('google-auth-library');
 const db = require('../db/db');
+const config = require('../config');
 const { initFirebase } = require('../middleware/auth');
 const { authLimiter } = require('../middleware/rateLimit');
 
 const router = express.Router();
+const googleClient = config.google.webClientId ? new OAuth2Client(config.google.webClientId) : null;
 
 // Apply auth rate limiter across all login and OTP endpoints
 router.use(authLimiter);
@@ -165,6 +168,72 @@ router.post('/firebase', async (req, res) => {
   } catch (err) {
     console.error('[Auth] Firebase verify error:', err.message);
     res.status(401).json({ error: 'Invalid Firebase ID token' });
+  }
+});
+
+/**
+ * POST /api/auth/google
+ * Body: { idToken: string }
+ *
+ * Verifies a Google Sign-In ID token directly against Google's servers (via
+ * google-auth-library) — independent of whether Firebase Admin is configured,
+ * since Google accounts don't carry a phone number and this app's existing
+ * phone-based OTP path was the only auth method until now.
+ */
+router.post('/google', async (req, res) => {
+  try {
+    const { idToken } = req.body;
+    if (!idToken) {
+      return res.status(400).json({ error: 'idToken is required' });
+    }
+
+    if (!googleClient) {
+      return res.status(500).json({
+        error: 'Google Sign-In not configured',
+        message: 'GOOGLE_WEB_CLIENT_ID is not set on the server.',
+      });
+    }
+
+    const ticket = await googleClient.verifyIdToken({
+      idToken,
+      audience: config.google.webClientId,
+    });
+    const payload = ticket.getPayload();
+    if (!payload || !payload.sub) {
+      return res.status(401).json({ error: 'Invalid Google token' });
+    }
+
+    const { user } = db.getOrCreateUserByGoogle({
+      googleUid: payload.sub,
+      email: payload.email,
+      name: payload.name,
+    });
+
+    // Session token follows the same dev-token convention the rest of the
+    // auth middleware already understands (see middleware/auth.js) — no new
+    // middleware branch needed.
+    const sessionToken = `dev_${user.phone}`;
+
+    res.json({
+      success: true,
+      token: sessionToken,
+      phone: user.phone,
+      user: {
+        id: user.id,
+        phone: user.phone,
+        name: user.name,
+        email: user.email,
+        state: user.state,
+        activity: user.activity,
+        streak: user.streak,
+        day_count: user.day_count,
+        missed_count: user.missed_count,
+        deposit_status: user.deposit_status,
+      },
+    });
+  } catch (err) {
+    console.error('[Auth] Google verify error:', err.message);
+    res.status(401).json({ error: 'Invalid Google ID token' });
   }
 });
 

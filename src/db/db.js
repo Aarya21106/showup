@@ -64,6 +64,9 @@ const userColumnMigrations = [
   ['self_tracking_optin', 'ALTER TABLE users ADD COLUMN self_tracking_optin TEXT DEFAULT NULL'],
   ['tracking_decline_count', 'ALTER TABLE users ADD COLUMN tracking_decline_count INTEGER DEFAULT 0'],
   ['goal_timeframe', 'ALTER TABLE users ADD COLUMN goal_timeframe TEXT DEFAULT NULL'],
+  ['email', 'ALTER TABLE users ADD COLUMN email TEXT'],
+  ['google_uid', 'ALTER TABLE users ADD COLUMN google_uid TEXT'],
+  ['auth_provider', "ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'phone'"],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -111,6 +114,28 @@ function getOrCreateUser(phone) {
   const existing = getUserByPhone(phone);
   if (existing) return { user: existing, isNew: false };
   return { user: createUser(phone), isNew: true };
+}
+
+function getUserByGoogleUid(googleUid) {
+  return db.prepare('SELECT * FROM users WHERE google_uid = ?').get(googleUid);
+}
+
+/**
+ * Finds or creates a user authenticated via Google Sign-In. Google accounts
+ * don't carry a phone number, but `users.phone` is NOT NULL UNIQUE and used as
+ * the identifier throughout the rest of the app (messaging, scheduler, etc.) —
+ * so a Google-authenticated user gets a synthetic "google:<uid>" placeholder in
+ * that column instead of a real phone number. `auth_provider` distinguishes them.
+ */
+function getOrCreateUserByGoogle({ googleUid, email, name }) {
+  const existing = getUserByGoogleUid(googleUid);
+  if (existing) return { user: existing, isNew: false };
+
+  const syntheticPhone = `google:${googleUid}`;
+  const info = db.prepare(
+    'INSERT INTO users (phone, email, google_uid, auth_provider, name, activity) VALUES (?, ?, ?, ?, ?, NULL)'
+  ).run(syntheticPhone, email || null, googleUid, 'google', name || null);
+  return { user: getUserById(info.lastInsertRowid), isNew: true };
 }
 
 const USER_FIELDS = new Set([
@@ -506,6 +531,8 @@ module.exports = {
   getUserByPhone,
   getUserById,
   getOrCreateUser,
+  getUserByGoogleUid,
+  getOrCreateUserByGoogle,
   updateUser,
   getActiveUsers,
   getAllUsers,

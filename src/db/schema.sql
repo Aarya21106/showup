@@ -23,6 +23,9 @@ CREATE TABLE IF NOT EXISTS users (
   current_gesture     TEXT,
   onboarding_history  TEXT DEFAULT '[]',
   tier                TEXT DEFAULT 'free',  -- free | pro_120 | pro_350
+  email               TEXT,
+  google_uid          TEXT UNIQUE,
+  auth_provider       TEXT DEFAULT 'phone', -- phone | google
   height              REAL,
   weight              REAL,
   target_calories     INTEGER,

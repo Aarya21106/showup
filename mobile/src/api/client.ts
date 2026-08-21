@@ -98,6 +98,13 @@ export const ShowUpApi = {
     return response.data;
   },
 
+  // Authenticate with a Google Sign-In ID token
+  async loginWithGoogle(idToken: string): Promise<{ success: boolean; token: string; phone: string; user: UserProfile }> {
+    const api = axios.create({ baseURL: BASE_URL, timeout: 10000 });
+    const response = await api.post('/api/auth/google', { idToken });
+    return response.data;
+  },
+
   // Send a text message, image check-in, or (Pro-only) voice message to the bot
   async sendMessage(payload: {
     body: string;

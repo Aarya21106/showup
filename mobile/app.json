@@ -24,7 +24,8 @@
         "READ_EXTERNAL_STORAGE",
         "WRITE_EXTERNAL_STORAGE",
         "RECORD_AUDIO",
-        "POST_NOTIFICATIONS"
+        "POST_NOTIFICATIONS",
+        "android.permission.MODIFY_AUDIO_SETTINGS"
       ]
     },
     "web": {
@@ -33,7 +34,8 @@
     "extra": {
       "eas": {
         "projectId": "ae8ff745-748f-47f2-99b7-098b9693291a"
-      }
+      },
+      "googleWebClientId": "932014076515-a5vvjougtnr3i0vplbg4jkhbhj76h8fs.apps.googleusercontent.com"
     },
     "plugins": [
       "expo-audio",
@@ -43,7 +45,14 @@
           "icon": "./assets/icon.png",
           "color": "#10B981"
         }
-      ]
-    ]
+      ],
+      "@react-native-google-signin/google-signin"
+    ],
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/ae8ff745-748f-47f2-99b7-098b9693291a"
+    }
   }
 }

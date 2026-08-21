@@ -35,6 +35,19 @@ function promptNutritionChoice(user) {
   );
 }
 
+/**
+ * Returns the correct deposit payment link for the given tier. Bug fix: both
+ * tier-selection branches below used to send the exact same config.paymentLinkUrl
+ * regardless of whether the user picked Basic or Pro. Falls back to the legacy
+ * single link if a tier-specific one isn't configured, so nothing breaks for
+ * deployments that haven't set the two new env vars yet.
+ */
+function getPaymentLinkForTier(tier) {
+  if (tier === 'pro' && config.paymentLinkUrlPro) return config.paymentLinkUrlPro;
+  if (tier === 'basic' && config.paymentLinkUrlBasic) return config.paymentLinkUrlBasic;
+  return config.paymentLinkUrl;
+}
+
 async function sendTierSelectionAsk(user) {
   // Show deposit rules + Basic vs Pro tier choice
   await messaging.sendText(user.phone, messages.t(user.language, 'accountabilityIntro', { name: user.name }));
@@ -92,8 +105,9 @@ async function handleOnboarding(user, body, media) {
     if ((lower === '1' || /\bbasic\b/i.test(lower)) && !user.tier) {
       db.updateUser(user.id, { tier: 'basic' });
       await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'basic' }));
-      if (config.paymentLinkUrl) {
-        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
+      const link = getPaymentLinkForTier('basic');
+      if (link) {
+        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', link));
       }
       return;
     }
@@ -101,8 +115,9 @@ async function handleOnboarding(user, body, media) {
     if ((lower === '2' || /\bpro\b/i.test(lower)) && !user.tier) {
       db.updateUser(user.id, { tier: 'pro' });
       await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'pro' }));
-      if (config.paymentLinkUrl) {
-        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', config.paymentLinkUrl));
+      const link = getPaymentLinkForTier('pro');
+      if (link) {
+        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', link));
       }
       return;
     }

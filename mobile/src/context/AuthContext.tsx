@@ -20,6 +20,7 @@ interface AuthContextType {
   sendOtp: (phone: string) => Promise<{ success: boolean; message?: string; devCode?: string }>;
   verifyOtp: (code: string) => Promise<{ success: boolean; message?: string }>;
   loginWithFirebase: (idToken: string) => Promise<void>;
+  loginWithGoogle: (idToken: string) => Promise<void>;
   logout: () => Promise<void>;
   refreshProfile: () => Promise<void>;
   updateServerUrl: (url: string) => Promise<void>;
@@ -138,6 +139,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
+  const loginWithGoogle = async (idToken: string) => {
+    const res = await ShowUpApi.loginWithGoogle(idToken);
+    if (res.success && res.token) {
+      setPhone(res.phone);
+      setToken(res.token);
+      setProfile(res.user);
+      setAuthToken(res.token);
+      setActivePhone(res.phone);
+
+      await AsyncStorage.setItem(STORAGE_KEYS.PHONE, res.phone);
+      await AsyncStorage.setItem(STORAGE_KEYS.TOKEN, res.token);
+    }
+  };
+
   const logout = async () => {
     setPhone(null);
     setToken(null);
@@ -172,6 +187,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         sendOtp,
         verifyOtp,
         loginWithFirebase,
+        loginWithGoogle,
         logout,
         refreshProfile,
         updateServerUrl,

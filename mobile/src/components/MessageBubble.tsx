@@ -43,16 +43,16 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 
   // Detect special cards
   const isPaymentLink = !isUser && (text.includes('razorpay.me') || text.includes('deposit'));
+  // Matches only the exact fixed phrasing the backend's needPhoto/needGesturePhoto/reminder
+  // templates actually use (see messages.js) — a real, live "send your proof now" prompt.
+  // Bug fix: this used to also match any message that merely mentioned "daily gesture" and
+  // "weights" anywhere (e.g. the onboarding plan summary explaining the program rules),
+  // which incorrectly attached a "Submit Check-in Proof" button to that message too.
   const isGesturePrompt =
     !isUser &&
-    (text.includes('Daily reminder: Please submit your workout proof') ||
-      (text.toLowerCase().includes('workout proof') &&
-        (text.includes('finger') ||
-          text.includes('hand sign') ||
-          text.includes('sign') ||
-          text.includes('pose') ||
-          text.includes('holding up'))) ||
-      (text.toLowerCase().includes('daily gesture') && text.toLowerCase().includes('weights')));
+    (text.includes('photo proof showing') ||
+      text.includes('send a photo showing:') ||
+      text.includes('workout proof showing'));
   const isDietLog = !isUser && text.includes('Diet Logged') && text.includes('kcal');
   const isBurnLog = !isUser && text.includes('Activity Logged') && text.includes('Burned');
 
