@@ -13,6 +13,8 @@ import {
   ExternalLink,
   Flame,
   Utensils,
+  AlertCircle,
+  Clock,
 } from 'lucide-react-native';
 import { Colors, Spacing, BorderRadius } from '../theme/colors';
 import { ChatMessage } from '../api/client';
@@ -21,12 +23,14 @@ interface MessageBubbleProps {
   message: ChatMessage;
   onOpenCheckinCamera?: () => void;
   onImagePress?: (url: string) => void;
+  onRetryMessage?: () => void;
 }
 
 export const MessageBubble: React.FC<MessageBubbleProps> = ({
   message,
   onOpenCheckinCamera,
   onImagePress,
+  onRetryMessage,
 }) => {
   const isUser = message.role === 'user';
   const text = message.text;
@@ -73,10 +77,17 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
     }
   };
 
+  const isFailed = message.status === 'failed';
+  const BubbleWrapper = isFailed && isUser ? TouchableOpacity : View;
+  const wrapperProps = isFailed && isUser ? { onPress: onRetryMessage, activeOpacity: 0.7 } : {};
+
   return (
     <View style={[styles.container, isUser ? styles.userAlign : styles.botAlign]}>
-      <View style={[styles.bubble, isUser ? styles.userBubble : styles.botBubble]}>
-        
+      <BubbleWrapper
+        style={[styles.bubble, isUser ? styles.userBubble : styles.botBubble, isFailed && styles.failedBubble]}
+        {...wrapperProps}
+      >
+
         {/* Attached Photo Preview */}
         {(message.imageUri || message.media_url) && (
           <TouchableOpacity
@@ -147,18 +158,30 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
           </View>
         )}
 
-        {/* Footer: Timestamp & Checkmarks */}
+        {/* Failed-send notice — tap the bubble to retry */}
+        {isFailed && isUser && (
+          <View style={styles.failedRow}>
+            <AlertCircle size={12} color={Colors.coral} />
+            <Text style={styles.failedText}>Not sent — tap to retry</Text>
+          </View>
+        )}
+
+        {/* Footer: Timestamp & Status */}
         <View style={styles.footerRow}>
           <Text style={styles.timeText}>{formattedTime}</Text>
-          {isUser && (
-            <CheckCheck
-              size={13}
-              color={message.status === 'delivered' ? Colors.tickActive : Colors.tickSent}
-            />
+          {isUser && !isFailed && (
+            message.status === 'sending' ? (
+              <Clock size={12} color={Colors.tickSent} />
+            ) : (
+              <CheckCheck
+                size={13}
+                color={message.status === 'delivered' ? Colors.tickActive : Colors.tickSent}
+              />
+            )
           )}
         </View>
 
-      </View>
+      </BubbleWrapper>
     </View>
   );
 };
@@ -192,6 +215,20 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.botBubbleBorder,
     borderBottomLeftRadius: 2,
+  },
+  failedBubble: {
+    borderColor: Colors.coralSubtle,
+    opacity: 0.85,
+  },
+  failedRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginTop: 4,
+  },
+  failedText: {
+    fontSize: 10.5,
+    color: Colors.coral,
+    marginLeft: 4,
   },
   imageContainer: {
     width: '100%',

@@ -33,6 +33,25 @@ const WELCOME_MESSAGE: ChatMessage = {
   status: 'delivered',
 };
 
+// Retries a send with exponential backoff (2s, 4s, 8s, capped at 15s) before giving up.
+// Used for every outbound send (text/photo/voice) so a network blip resolves itself
+// instead of surfacing an error immediately.
+async function sendWithRetry<T>(fn: () => Promise<T>, maxAttempts = 4): Promise<T> {
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      if (attempt < maxAttempts - 1) {
+        const delay = Math.min(2000 * 2 ** attempt, 15000);
+        await new Promise((resolve) => setTimeout(resolve, delay));
+      }
+    }
+  }
+  throw lastErr;
+}
+
 export const ChatScreen: React.FC = () => {
   const { phone, profile, refreshProfile, checkConnection } = useAuth();
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -48,6 +67,9 @@ export const ChatScreen: React.FC = () => {
 
   const flatListRef = useRef<FlatList>(null);
   const isPro = !!profile?.tier && profile.tier.startsWith('pro');
+  // Holds the original "resend this" closure for any message currently in 'failed'
+  // state, so tapping it can retry the exact same payload without re-deriving it.
+  const pendingSendersRef = useRef<Map<string | number, () => Promise<any>>>(new Map());
 
   // On mount (and whenever the logged-in phone changes), restore the conversation
   // from the on-device cache first — instant, no network wait, "doesn't forget it"
@@ -152,9 +174,13 @@ export const ChatScreen: React.FC = () => {
     scrollToBottom(true);
     setIsLoading(true);
 
-    try {
-      await ShowUpApi.sendMessage({ body: text });
+    const sendFn = () => ShowUpApi.sendMessage({ body: text });
+    pendingSendersRef.current.set(tempId, sendFn);
 
+    try {
+      await sendWithRetry(sendFn);
+
+      pendingSendersRef.current.delete(tempId);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: 'delivered' } : m))
       );
@@ -164,23 +190,41 @@ export const ChatScreen: React.FC = () => {
       setTimeout(fetchNewMessages, 2000);
       setTimeout(fetchNewMessages, 4000);
     } catch (err: any) {
-      console.error('Send error:', err);
-      setTimeout(() => {
-        setMessages((prev) => [
-          ...prev,
-          {
-            id: `bot-offline-${Date.now()}`,
-            role: 'model',
-            text: 'Unable to reach backend server. Tap the header to verify your PC IP URL.',
-            created_at: new Date().toISOString(),
-            status: 'delivered',
-          },
-        ]);
-        scrollToBottom(true);
-      }, 1000);
+      // Retries (2s, 4s, 8s) are already exhausted at this point — mark it failed
+      // rather than injecting a fake bot reply. The bubble itself shows the failure
+      // and can be tapped to retry again (see handleRetryMessage).
+      console.error('Send error after retries:', err);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m))
+      );
     } finally {
       setIsLoading(false);
       scrollToBottom(true);
+    }
+  };
+
+  // Manually retry a message that's sitting in 'failed' state (tapped by the user).
+  const handleRetryMessage = async (message: ChatMessage) => {
+    const sendFn = pendingSendersRef.current.get(message.id);
+    if (!sendFn) return;
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === message.id ? { ...m, status: 'sending' } : m))
+    );
+
+    try {
+      await sendWithRetry(sendFn);
+      pendingSendersRef.current.delete(message.id);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? { ...m, status: 'delivered' } : m))
+      );
+      setTimeout(fetchNewMessages, 600);
+      setTimeout(fetchNewMessages, 2000);
+    } catch (err) {
+      console.error('Retry failed:', err);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === message.id ? { ...m, status: 'failed' } : m))
+      );
     }
   };
 
@@ -200,13 +244,17 @@ export const ChatScreen: React.FC = () => {
     scrollToBottom(true);
     setIsLoading(true);
 
-    try {
-      await ShowUpApi.sendMessage({
-        body: caption || 'Here is my workout proof',
-        imageBase64,
-        mimeType: 'image/jpeg',
-      });
+    const sendFn = () => ShowUpApi.sendMessage({
+      body: caption || 'Here is my workout proof',
+      imageBase64,
+      mimeType: 'image/jpeg',
+    });
+    pendingSendersRef.current.set(tempId, sendFn);
 
+    try {
+      await sendWithRetry(sendFn);
+
+      pendingSendersRef.current.delete(tempId);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: 'delivered' } : m))
       );
@@ -214,7 +262,10 @@ export const ChatScreen: React.FC = () => {
       setTimeout(fetchNewMessages, 1000);
       setTimeout(fetchNewMessages, 3000);
     } catch (err) {
-      console.error('Photo submission error:', err);
+      console.error('Photo submission error after retries:', err);
+      setMessages((prev) =>
+        prev.map((m) => (m.id === tempId ? { ...m, status: 'failed' } : m))
+      );
     } finally {
       setIsLoading(false);
       scrollToBottom(true);
@@ -250,13 +301,17 @@ export const ChatScreen: React.FC = () => {
     scrollToBottom(true);
     setIsLoading(true);
 
-    try {
-      await ShowUpApi.sendMessage({
-        body: '',
-        audioBase64,
-        audioMimeType: mimeType,
-      });
+    const sendFn = () => ShowUpApi.sendMessage({
+      body: '',
+      audioBase64,
+      audioMimeType: mimeType,
+    });
+    pendingSendersRef.current.set(tempId, sendFn);
 
+    try {
+      await sendWithRetry(sendFn);
+
+      pendingSendersRef.current.delete(tempId);
       setMessages((prev) =>
         prev.map((m) => (m.id === tempId ? { ...m, status: 'delivered' } : m))
       );
@@ -302,6 +357,7 @@ export const ChatScreen: React.FC = () => {
                 setIsCameraOpen(true);
               }}
               onImagePress={(url) => setEnlargedImage(url)}
+              onRetryMessage={() => handleRetryMessage(item)}
             />
           )}
           contentContainerStyle={styles.listContent}
