@@ -146,8 +146,18 @@ async function ensureTursoSchema() {
   if (!tursoClient) return;
   // Independent, idempotent statements — run in parallel rather than one-by-one,
   // so a slow/degraded Turso region doesn't turn ~60 sequential calls into minutes.
-  const statements = schema.split(';').map((s) => s.trim()).filter(Boolean);
-  await Promise.allSettled(statements.map((stmt) =>
+  // CREATE TABLE and CREATE INDEX have a real ordering dependency though (an index
+  // can't be created before its table exists), so tables run as their own settled
+  // phase before indexes start — otherwise a CREATE INDEX can race ahead of its
+  // CREATE TABLE and fail with "no such table".
+  const allStatements = schema.split(';').map((s) => s.trim()).filter(Boolean);
+  const tableStatements = allStatements.filter((s) => /^CREATE TABLE/i.test(s));
+  const indexStatements = allStatements.filter((s) => !/^CREATE TABLE/i.test(s));
+
+  await Promise.allSettled(tableStatements.map((stmt) =>
+    tursoClient.execute(stmt).catch((err) => console.error('[Turso] Schema statement failed:', err.message))
+  ));
+  await Promise.allSettled(indexStatements.map((stmt) =>
     tursoClient.execute(stmt).catch((err) => console.error('[Turso] Schema statement failed:', err.message))
   ));
   await Promise.allSettled(ALL_MIGRATIONS.map((sql) =>
