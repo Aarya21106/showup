@@ -6,11 +6,44 @@ import {
   Modal,
   TouchableOpacity,
   ActivityIndicator,
+  Platform,
 } from 'react-native';
 import { Mic, X, Check, Square, Trash2 } from 'lucide-react-native';
-import { useAudioRecorder, RecordingPresets, AudioModule } from 'expo-audio';
+import { useAudioRecorder, AudioModule, IOSOutputFormat, AudioQuality, type RecordingOptions } from 'expo-audio';
 import { File } from 'expo-file-system';
 import { Colors, Spacing, BorderRadius } from '../theme/colors';
+
+// The built-in RecordingPresets.HIGH_QUALITY wraps AAC in an .m4a (MPEG-4)
+// container on both platforms — but Gemini's "audio/aac" MIME type expects a
+// bare AAC stream, not an MP4 container. Sending the container's raw bytes
+// mislabeled as audio/aac made Gemini unable to reliably decode voice
+// messages. This custom preset asks for a raw ADTS AAC stream on Android
+// (which genuinely matches audio/aac) and uncompressed Linear PCM (.wav) on
+// iOS (matches audio/wav) — see handleSubmit below for the matching MIME type.
+const VOICE_RECORDING_OPTIONS: RecordingOptions = {
+  isMeteringEnabled: false,
+  extension: Platform.OS === 'android' ? '.aac' : '.wav',
+  sampleRate: 44100,
+  numberOfChannels: 2,
+  bitRate: 128000,
+  android: {
+    extension: '.aac',
+    outputFormat: 'aac_adts',
+    audioEncoder: 'aac',
+  },
+  ios: {
+    extension: '.wav',
+    outputFormat: IOSOutputFormat.LINEARPCM,
+    audioQuality: AudioQuality.MAX,
+    linearPCMBitDepth: 16,
+    linearPCMIsBigEndian: false,
+    linearPCMIsFloat: false,
+  },
+  web: {
+    mimeType: 'audio/webm',
+    bitsPerSecond: 128000,
+  },
+};
 
 interface VoiceRecordSheetProps {
   visible: boolean;
@@ -30,7 +63,7 @@ export const VoiceRecordSheet: React.FC<VoiceRecordSheetProps> = ({
   onClose,
   onSubmitVoice,
 }) => {
-  const recorder = useAudioRecorder(RecordingPresets.HIGH_QUALITY);
+  const recorder = useAudioRecorder(VOICE_RECORDING_OPTIONS);
   const [isRecording, setIsRecording] = useState(false);
   const [hasRecording, setHasRecording] = useState(false);
   const [durationMs, setDurationMs] = useState(0);
@@ -96,9 +129,8 @@ export const VoiceRecordSheet: React.FC<VoiceRecordSheetProps> = ({
     try {
       const file = new File(recorder.uri);
       const base64 = await file.base64();
-      // expo-audio's HIGH_QUALITY preset records AAC audio (in an .m4a container) —
-      // Gemini's API accepts "audio/aac" but not "audio/m4a"/"audio/mp4" as a MIME type.
-      await onSubmitVoice(base64, 'audio/aac');
+      const mimeType = Platform.OS === 'android' ? 'audio/aac' : 'audio/wav';
+      await onSubmitVoice(base64, mimeType);
       setHasRecording(false);
       setDurationMs(0);
       onClose();
