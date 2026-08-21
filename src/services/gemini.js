@@ -818,6 +818,9 @@ async function classifyIntent(message) {
   if (/(?:weighed|weight(?:\s+is)?(?:\s*:)?|scale says|kg this morning|kg today)/i.test(msg) && /\d+/.test(msg)) {
     return 'WEIGHT_UPDATE';
   }
+  if (/\b(?:remind|reminde?rs?|remaind(?:er|ers)?)\b/i.test(msg) && /(?:breakfast|lunch|dinner|snack)/i.test(msg) && /\d/.test(msg)) {
+    return 'MEAL_REMINDER_UPDATE';
+  }
   if (/(?:benched|squatted|deadlifted|overhead press|lat pulldown|dumbbell press|curls|\bsquat\b|\brow\b|\bdeadlift\b|\bbench\b|\bpress\b|\bpull.?down\b|\bpull.?up\b)/i.test(msg) && /\d+\s*(?:kg|reps|x|\*)/i.test(msg)) {
     return 'PERFORMANCE_LOG';
   }
@@ -844,6 +847,7 @@ Available intents:
 - "RESCHEDULE_REQUEST": User wants to move, postpone, shift, or reschedule a workout. E.g. "I can't train today, can I do it tomorrow?", "move Monday's workout to Tuesday", "I have college tomorrow, can I do it Sunday?", "I missed yesterday, can I train today instead?".
 - "POST_WORKOUT_RESPONSE": User is responding to a post-workout checkin status question ("Completed", "Modified", "Couldn't train", "Rescheduled", "1", "2", "3", "4").
 - "WEIGHT_UPDATE": User is reporting an updated body weight measurement. E.g. "I weighed 73kg this morning", "my weight is now 72.5kg".
+- "MEAL_REMINDER_UPDATE": User wants to change or set the TIME of a meal/calorie-tracking reminder (breakfast, lunch, dinner, or snack). E.g. "remind me lunch at 1pm instead", "change my dinner reminder to 9pm", "move breakfast reminder to 7:30am".
 - "PERFORMANCE_LOG": User is reporting specific lifts, sets, reps, or weights lifted. E.g. "Benched 65kg for 8 reps 3 sets", "Squat 100kg 5x5 RPE 8".
 - "DIET_LOG": User wants to log food, meals, calories eaten, or diet. E.g., "I ate 2 eggs", "lunch: chicken rice 200g".
 - "DIET_QUERY": User is asking for diet plan suggestions, recipes, calorie target details, or general nutrition/diet advice. E.g., "suggest a diet plan", "what should I eat?".
@@ -855,7 +859,7 @@ Available intents:
 User Message: "${message}"
 
 Respond ONLY with a valid JSON object, no markdown fences:
-{"intent": "DIET_DEVIATION"|"SUBSTITUTION_OR_MODIFICATION"|"HEALTH_ALERT"|"RESCHEDULE_REQUEST"|"POST_WORKOUT_RESPONSE"|"WEIGHT_UPDATE"|"PERFORMANCE_LOG"|"DIET_LOG"|"DIET_QUERY"|"WORKOUT_BURN_LOG"|"EXERCISE_QUERY"|"GENERAL_QUERY"|"CHECKIN"}`;
+{"intent": "DIET_DEVIATION"|"SUBSTITUTION_OR_MODIFICATION"|"HEALTH_ALERT"|"RESCHEDULE_REQUEST"|"POST_WORKOUT_RESPONSE"|"WEIGHT_UPDATE"|"MEAL_REMINDER_UPDATE"|"PERFORMANCE_LOG"|"DIET_LOG"|"DIET_QUERY"|"WORKOUT_BURN_LOG"|"EXERCISE_QUERY"|"GENERAL_QUERY"|"CHECKIN"}`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.1 });
@@ -957,6 +961,41 @@ Rules:
   } catch (err) {
     console.error('[Gemini] parseMealReminderTimes failed, using defaults:', err.message);
     return { breakfast: '09:00', lunch: '13:30', dinner: '20:30', snacks: [] };
+  }
+}
+
+/**
+ * Parses a request to change ONE existing meal reminder's time (post-onboarding,
+ * conversational — e.g. "remind me lunch at 1:22pm actually"). Distinct from
+ * parseMealReminderTimes above, which handles the initial "set all your times" turn.
+ */
+async function parseMealReminderUpdate({ user, text }) {
+  let currentTimes = {};
+  try { currentTimes = JSON.parse(user.meal_reminder_times || '{}'); } catch (e) { currentTimes = {}; }
+
+  const prompt = `You are a scheduling assistant for a fitness coaching app in timezone ${require('../config').timezone}.
+The user wants to change or set the time of ONE of their meal/calorie-tracking reminders.
+
+Current reminder times: ${JSON.stringify(currentTimes)}
+
+User message: "${text}"
+
+Task: Identify which single meal they mean and the new time in 24-hour HH:MM format.
+
+Respond ONLY with a valid JSON object, no markdown fences:
+{
+  "meal": "breakfast"|"lunch"|"dinner"|"snack"|null,
+  "time": "HH:MM"|null
+}
+If the message isn't actually specifying a meal + a clear time, return {"meal": null, "time": null}.`;
+
+  try {
+    const resText = await callGemini({ parts: [{ text: prompt }], jsonMode: true, temperature: 0.1 });
+    const cleaned = resText.trim().replace(/^```json\s*/i, '').replace(/```$/, '');
+    return JSON.parse(cleaned);
+  } catch (err) {
+    console.error('[Gemini] parseMealReminderUpdate failed:', err.message);
+    return { meal: null, time: null };
   }
 }
 
@@ -2214,6 +2253,7 @@ module.exports = {
   parseDietLog,
   parseBurnedCalories,
   parseMealReminderTimes,
+  parseMealReminderUpdate,
   getExerciseSuggestions,
   getDietSuggestions,
   generateDietDeviationGuidance,

@@ -234,10 +234,56 @@ Generate a caring, professional coach response in ${langName}.`;
   }
 }
 
+/**
+ * Handles a conversational request to change one meal reminder's time
+ * (e.g. "remind me lunch at 1:22pm actually"), post-onboarding.
+ * Bug fix: previously this class of message had no handler at all — it fell
+ * through to handleGeneralQuery, which produced a confident "Got it, noted!"
+ * reply without ever touching the database, so the reminder never changed.
+ */
+async function handleMealReminderUpdate(user, text) {
+  const phone = user.phone;
+  const parsed = await gemini.parseMealReminderUpdate({ user, text });
+
+  if (!parsed.meal || !parsed.time) {
+    // Didn't actually resolve to a specific meal + time — fall back to a normal
+    // conversational reply rather than claiming a change that didn't happen.
+    const reply = await gemini.handleGeneralQuery(user, text);
+    await messaging.sendText(phone, reply);
+    return;
+  }
+
+  let times;
+  try { times = JSON.parse(user.meal_reminder_times || '{}'); } catch (e) { times = {}; }
+  if (!times.breakfast) times.breakfast = '09:00';
+  if (!times.lunch) times.lunch = '13:30';
+  if (!times.dinner) times.dinner = '20:30';
+  if (!Array.isArray(times.snacks)) times.snacks = [];
+
+  if (parsed.meal === 'snack') {
+    if (times.snacks.length > 0) {
+      times.snacks[0] = parsed.time;
+    } else {
+      times.snacks.push(parsed.time);
+    }
+  } else {
+    times[parsed.meal] = parsed.time;
+  }
+
+  db.updateUser(user.id, {
+    meal_reminder_times: JSON.stringify(times),
+    meal_reminder_optin: 'yes',
+  });
+
+  const mealLabel = parsed.meal.charAt(0).toUpperCase() + parsed.meal.slice(1);
+  await messaging.sendText(phone, `Got it — ${mealLabel} reminder updated to ${parsed.time}. I'll remind you then.`);
+}
+
 module.exports = {
   handlePerformanceLog,
   handleWeightUpdate,
   handlePostWorkoutResponse,
   handleSubstitutionOrModification,
   handleHealthAlert,
+  handleMealReminderUpdate,
 };

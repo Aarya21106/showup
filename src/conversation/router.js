@@ -373,6 +373,12 @@ async function handleIncomingMessage({ phone, body, media }) {
           return;
         }
 
+        if (intent === 'MEAL_REMINDER_UPDATE') {
+          const coaching = require('./coaching');
+          await coaching.handleMealReminderUpdate(user, text);
+          return;
+        }
+
         if (intent === 'PERFORMANCE_LOG') {
           const coaching = require('./coaching');
           await coaching.handlePerformanceLog(user, text);
