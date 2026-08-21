@@ -102,7 +102,14 @@ async function handleOnboarding(user, body, media) {
     const lower = text.toLowerCase().trim();
 
     // --- Tier selection: user picks Basic or Pro ---
-    if ((lower === '1' || /\bbasic\b/i.test(lower)) && !user.tier) {
+    // Bug fix: this used to guard on `!user.tier`, but the `tier` column's DB
+    // default is the STRING 'free' (schema.sql), never null/undefined — so
+    // `!user.tier` was always false and these branches could never fire for any
+    // new user. 'free' is only ever the pre-selection sentinel here (no one
+    // actively "picks" it), so the correct check is against that sentinel value.
+    const tierUnselected = !user.tier || user.tier === 'free';
+
+    if ((lower === '1' || /\bbasic\b/i.test(lower)) && tierUnselected) {
       db.updateUser(user.id, { tier: 'basic' });
       await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'basic' }));
       const link = getPaymentLinkForTier('basic');
@@ -112,7 +119,7 @@ async function handleOnboarding(user, body, media) {
       return;
     }
 
-    if ((lower === '2' || /\bpro\b/i.test(lower)) && !user.tier) {
+    if ((lower === '2' || /\bpro\b/i.test(lower)) && tierUnselected) {
       db.updateUser(user.id, { tier: 'pro' });
       await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'pro' }));
       const link = getPaymentLinkForTier('pro');
@@ -124,8 +131,14 @@ async function handleOnboarding(user, body, media) {
 
     // --- Payment confirmation ---
     if (/\bpaid\b/i.test(lower)) {
-      // If user said 'paid' without picking a tier yet, default to basic
-      const activeTier = user.tier || 'basic';
+      // If they never actually selected a tier (still at the 'free' sentinel),
+      // don't silently guess for them — ask first, since this was the source of
+      // repeated "why is my account on the wrong tier" confusion.
+      if (tierUnselected) {
+        await messaging.sendText(phone, 'Which plan are you paying for? Reply "1" for Basic or "2" for Pro first, then send "paid".');
+        return;
+      }
+      const activeTier = user.tier;
       const today = todayStr(config.timezone);
       const updated = db.updateUser(user.id, {
         accountability_mode: 'accountability',

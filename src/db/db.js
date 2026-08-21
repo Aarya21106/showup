@@ -129,6 +129,31 @@ function runWrite(sql, params) {
   return result;
 }
 
+/**
+ * Upserts the FULL current row for a user into Turso, keyed by id.
+ *
+ * Why this exists: plain mirrored UPDATEs (via runWrite) are no-ops on Turso if
+ * the row doesn't exist there yet (e.g. its original INSERT mirror failed while
+ * Turso was unreachable) — an UPDATE with no matching row just silently affects
+ * zero rows, it never creates one. That left affected users permanently stuck:
+ * every later chat_messages/outbox_messages mirror referencing that user_id kept
+ * failing FOREIGN KEY constraint checks forever, with no way to self-heal.
+ * A full-row UPSERT keyed on id fixes that — any write to a user (create OR
+ * update) re-syncs their entire row, so a previously-missed user is recreated
+ * in Turso the next time anything about them changes.
+ */
+function mirrorFullUser(user) {
+  if (!tursoClient || !user) return;
+  const columns = Object.keys(user);
+  const columnList = columns.join(', ');
+  const placeholders = columns.map((c) => `@${c}`).join(', ');
+  const updateClause = columns.filter((c) => c !== 'id').map((c) => `${c} = excluded.${c}`).join(', ');
+  const sql = `INSERT INTO users (${columnList}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateClause}`;
+  tursoClient.execute({ sql, args: user }).catch((err) => {
+    console.error('[Turso] Full user mirror failed:', err.message);
+  });
+}
+
 const ALL_MIGRATIONS = [
   ...userColumnMigrations.map((m) => m[1]),
   ...checkinColumnMigrations.map((m) => m[1]),
@@ -239,7 +264,9 @@ function getUserById(id) {
 
 function createUser(phone) {
   const info = runWrite('INSERT INTO users (phone, activity) VALUES (?, NULL)', [phone]);
-  return getUserById(info.lastInsertRowid);
+  const user = getUserById(info.lastInsertRowid);
+  mirrorFullUser(user);
+  return user;
 }
 
 function getOrCreateUser(phone) {
@@ -268,7 +295,9 @@ function getOrCreateUserByGoogle({ googleUid, email, name }) {
     'INSERT INTO users (phone, email, google_uid, auth_provider, name, activity) VALUES (?, ?, ?, ?, ?, NULL)',
     [syntheticPhone, email || null, googleUid, 'google', name || null]
   );
-  return { user: getUserById(info.lastInsertRowid), isNew: true };
+  const user = getUserById(info.lastInsertRowid);
+  mirrorFullUser(user);
+  return { user, isNew: true };
 }
 
 const USER_FIELDS = new Set([
@@ -292,8 +321,14 @@ function updateUser(id, fields) {
   const keys = Object.keys(fields).filter((k) => USER_FIELDS.has(k));
   if (keys.length === 0) return getUserById(id);
   const setClause = keys.map((k) => `${k} = @${k}`).join(', ');
-  runWrite(`UPDATE users SET ${setClause} WHERE id = @id`, { ...fields, id });
-  return getUserById(id);
+  // Local UPDATE via runWrite (also fires its own mirrored UPDATE attempt, which
+  // is a harmless no-op if the row is already in sync). The mirrorFullUser call
+  // below is the one that matters: see its doc comment for why a full-row
+  // upsert — not a partial UPDATE — is required to self-heal a missing row.
+  db.prepare(`UPDATE users SET ${setClause} WHERE id = @id`).run({ ...fields, id });
+  const user = getUserById(id);
+  mirrorFullUser(user);
+  return user;
 }
 
 function getActiveUsers() {
