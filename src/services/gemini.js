@@ -1529,15 +1529,48 @@ STRICT ZERO EMOJIS RULE: Zero emojis.`;
 async function generateMealReminder(user, mealType = 'lunch') {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const prompt = `You are ShowUp, a direct fitness coach and nutritionist.
-Generate a short, friendly meal reminder for ${user.name} for ${mealType} on WhatsApp (max 30 words) in ${langName}.
-Remind them to get adequate protein (~${Math.round((user.weight || 70) * 1.8)}g daily target) and log their meal.
+Generate a short, friendly meal reminder for ${user.name} for ${mealType} on WhatsApp (max 35 words) in ${langName}.
+Remind them to get adequate protein (~${Math.round((user.weight || 70) * 1.8)}g daily target).
+CRITICAL: explicitly tell them to reply with what they eat so it gets logged, so their calories and protein for the day are tracked.
 STRICT ZERO EMOJIS RULE: Zero emojis.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
     return sanitizeScriptForLanguage(text.trim(), user.language);
   } catch (e) {
-    return `Meal time, ${user.name}. Make sure your ${mealType} includes a solid protein source. Reply with what you ate to log your calories and stay on target.`;
+    return `Meal time, ${user.name}. Make sure your ${mealType} includes a solid protein source. Reply with what you ate so it's logged and your calories and protein for the day stay on track.`;
+  }
+}
+
+async function generateMealFollowUpNudge(user, mealType = 'lunch') {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const prompt = `You are ShowUp, a direct fitness coach and nutritionist.
+It's been an hour since you reminded ${user.name} about ${mealType}, and they still haven't logged what they ate.
+Generate a short, friendly follow-up nudge on WhatsApp (max 30 words) in ${langName}.
+CRITICAL: explicitly ask them to reply with what they ate for ${mealType} so it gets logged and their calories/protein for the day stay tracked.
+STRICT ZERO EMOJIS RULE: Zero emojis.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+    return sanitizeScriptForLanguage(text.trim(), user.language);
+  } catch (e) {
+    return `Quick check, ${user.name} — did you have ${mealType} yet? Reply with what you ate so it gets logged and your calories and protein for today stay on track.`;
+  }
+}
+
+async function generateNightlyFoodLogNudge(user) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const prompt = `You are ShowUp, a direct fitness coach and nutritionist.
+${user.name} has meal reminders turned off and hasn't logged any food today.
+Generate a short, friendly end-of-day nudge on WhatsApp (max 30 words) in ${langName}.
+CRITICAL: explicitly ask them to reply with what they ate today so it gets logged and their calories/protein for the day are tracked, even though reminders are off.
+STRICT ZERO EMOJIS RULE: Zero emojis.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.7 });
+    return sanitizeScriptForLanguage(text.trim(), user.language);
+  } catch (e) {
+    return `Hey ${user.name}, noticed you haven't logged any food today. Reply with what you ate so it gets logged and your calories and protein for today are tracked.`;
   }
 }
 
@@ -2261,6 +2294,8 @@ module.exports = {
   generateWorkoutReminder,
   generateHydrationReminder,
   generateMealReminder,
+  generateMealFollowUpNudge,
+  generateNightlyFoodLogNudge,
   generateSleepRecoveryReminder,
   handleGeneralQuery,
   transcribeAndRespondToVoice,

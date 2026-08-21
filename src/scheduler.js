@@ -41,6 +41,14 @@ function isTimeThreeHoursLater(checkinTime, currentTime) {
   return targetHour === currHour && cMin === currMin;
 }
 
+function addMinutesToHHMM(hhmm, minutes) {
+  const [h, m] = hhmm.split(':').map(Number);
+  const total = (h * 60 + m + minutes) % (24 * 60);
+  const newH = Math.floor(total / 60);
+  const newM = total % 60;
+  return `${String(newH).padStart(2, '0')}:${String(newM).padStart(2, '0')}`;
+}
+
 function getDayName(dateStr, timezone) {
   try {
     const d = new Date(`${dateStr}T00:00:00Z`);
@@ -373,26 +381,33 @@ function tick() {
     // 7. Meal & Nutrition Check-in reminders — opt-in only (asked during onboarding),
     // fired at each user's own configured breakfast/lunch/dinner/snack times rather
     // than one fixed schedule for everyone. Users who declined reminders (or never
-    // finished the consent flow) get none here — see conversation/onboarding.js.
+    // finished the consent flow) get none here, but see 7b below for a nightly
+    // catch-all that covers them instead.
     if (user.meal_reminder_optin === 'yes' && user.meal_reminder_times) {
       let mealTimes = null;
       try { mealTimes = JSON.parse(user.meal_reminder_times); } catch (e) { mealTimes = null; }
 
       if (mealTimes) {
-        const dueMeals = [];
-        if (mealTimes.breakfast === currentTime) dueMeals.push({ key: 'meal_breakfast', mealType: 'breakfast' });
-        if (mealTimes.lunch === currentTime) dueMeals.push({ key: 'meal_lunch', mealType: 'lunch' });
-        if (mealTimes.dinner === currentTime) dueMeals.push({ key: 'meal_dinner', mealType: 'dinner' });
+        const configuredMeals = [];
+        if (mealTimes.breakfast) configuredMeals.push({ key: 'meal_breakfast', mealType: 'breakfast', time: mealTimes.breakfast });
+        if (mealTimes.lunch) configuredMeals.push({ key: 'meal_lunch', mealType: 'lunch', time: mealTimes.lunch });
+        if (mealTimes.dinner) configuredMeals.push({ key: 'meal_dinner', mealType: 'dinner', time: mealTimes.dinner });
         if (Array.isArray(mealTimes.snacks)) {
           mealTimes.snacks.forEach((snackTime, idx) => {
-            if (snackTime === currentTime) dueMeals.push({ key: `meal_snack_${idx}`, mealType: 'snack' });
+            if (snackTime) configuredMeals.push({ key: `meal_snack_${idx}`, mealType: 'snack', time: snackTime });
           });
         }
 
-        if (dueMeals.length > 0) {
+        const dueMeals = configuredMeals.filter((m) => m.time === currentTime);
+        // 1 hour after each meal's reminder time, nudge again if nothing's been logged since.
+        const dueFollowUps = configuredMeals.filter((m) => addMinutesToHHMM(m.time, 60) === currentTime);
+
+        if (dueMeals.length > 0 || dueFollowUps.length > 0) {
           let remindersLog = {};
           try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
           const todayLogs = remindersLog[today] || [];
+          const countsKey = `${today}::counts`;
+          const todayCounts = remindersLog[countsKey] || {};
           let logsChanged = false;
 
           for (const due of dueMeals) {
@@ -403,15 +418,57 @@ function tick() {
                 console.error(`Scheduler error (${due.mealType} reminder) for user ${user.id}:`, err.message);
               });
               todayLogs.push(due.key);
+              // Snapshot how many food entries exist right now, so the 1-hour
+              // follow-up below can tell whether anything new got logged since.
+              todayCounts[due.key] = db.getNutritionLogsToday(user.id, today).length;
+              logsChanged = true;
+            }
+          }
+
+          for (const due of dueFollowUps) {
+            const followUpKey = `${due.key}_followup`;
+            if (todayLogs.includes(due.key) && !todayLogs.includes(followUpKey)) {
+              const countAtReminder = todayCounts[due.key] || 0;
+              const countNow = db.getNutritionLogsToday(user.id, today).length;
+              if (countNow <= countAtReminder) {
+                gemini.generateMealFollowUpNudge(user, due.mealType).then((msg) => {
+                  return messaging.sendText(user.phone, msg);
+                }).catch((err) => {
+                  console.error(`Scheduler error (${due.mealType} follow-up) for user ${user.id}:`, err.message);
+                });
+              }
+              todayLogs.push(followUpKey);
               logsChanged = true;
             }
           }
 
           if (logsChanged) {
             remindersLog[today] = todayLogs;
+            remindersLog[countsKey] = todayCounts;
             db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
           }
         }
+      }
+    }
+
+    // 7b. Nightly catch-all for users who turned meal reminders off (or never
+    // opted in): once a day, if they haven't logged any food at all, nudge them.
+    if (user.meal_reminder_optin !== 'yes' && currentTime === '21:00') {
+      let remindersLog = {};
+      try { remindersLog = JSON.parse(user.reminders_sent_log || '{}'); } catch (e) {}
+      const todayLogs = remindersLog[today] || [];
+
+      if (!todayLogs.includes('nightly_food_nudge')) {
+        if (db.getNutritionLogsToday(user.id, today).length === 0) {
+          gemini.generateNightlyFoodLogNudge(user).then((msg) => {
+            return messaging.sendText(user.phone, msg);
+          }).catch((err) => {
+            console.error(`Scheduler error (nightly food nudge) for user ${user.id}:`, err.message);
+          });
+        }
+        todayLogs.push('nightly_food_nudge');
+        remindersLog[today] = todayLogs;
+        db.updateUser(user.id, { reminders_sent_log: JSON.stringify(remindersLog) });
       }
     }
 
