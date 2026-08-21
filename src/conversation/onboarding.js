@@ -390,6 +390,23 @@ async function handleOnboarding(user, body, media) {
 
   // Stage 9.8: Awaiting Meal Reminder Times — user asked for reminders, now say when
   if (user.state === states.AWAITING_MEAL_REMINDER_TIMES) {
+    // Bug fix: this used to hand ANY reply straight to parseMealReminderTimes,
+    // which is instructed to fall back to default times (09:00/13:30/20:30)
+    // whenever it can't find real times in the text. That's correct for a
+    // genuinely vague answer ("whenever, you decide"), but it also silently
+    // fired — and locked in — for outright questions like "Is it daily
+    // reminders?", answering nothing and never actually asking again. Every
+    // other onboarding state in this file guards on isOffTopicQuestion first;
+    // this one didn't.
+    const questionCheck = isOffTopicQuestion(text);
+    if (questionCheck) {
+      const aiReply = await gemini.handleGeneralQuery(user, text);
+      if (aiReply) {
+        await messaging.sendText(phone, aiReply + '\n\n' + messages.mealReminderTimesPrompt(user.language));
+      }
+      return;
+    }
+
     let times;
     try {
       times = await gemini.parseMealReminderTimes(text, config.timezone);
