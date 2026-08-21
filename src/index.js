@@ -10,6 +10,13 @@ const { startScheduler } = require('./scheduler');
 
 const app = express();
 
+// Render puts every request behind a reverse proxy, which sets X-Forwarded-For.
+// Without telling Express to trust it, express-rate-limit can't safely resolve
+// the real client IP and throws ERR_ERL_UNEXPECTED_X_FORWARDED_FOR on every
+// rate-limited request (auth, api, message) instead of just limiting it.
+// `1` trusts exactly one hop, matching Render's single reverse proxy.
+app.set('trust proxy', 1);
+
 // Parse JSON bodies for REST API
 app.use(express.json({ limit: '10mb' }));
 

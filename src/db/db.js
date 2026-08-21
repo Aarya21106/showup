@@ -291,13 +291,31 @@ function getOrCreateUserByGoogle({ googleUid, email, name }) {
   if (existing) return { user: existing, isNew: false };
 
   const syntheticPhone = `google:${googleUid}`;
-  const info = runWrite(
-    'INSERT INTO users (phone, email, google_uid, auth_provider, name, activity) VALUES (?, ?, ?, ?, ?, NULL)',
-    [syntheticPhone, email || null, googleUid, 'google', name || null]
-  );
-  const user = getUserById(info.lastInsertRowid);
-  mirrorFullUser(user);
-  return { user, isNew: true };
+  try {
+    const info = runWrite(
+      'INSERT INTO users (phone, email, google_uid, auth_provider, name, activity) VALUES (?, ?, ?, ?, ?, NULL)',
+      [syntheticPhone, email || null, googleUid, 'google', name || null]
+    );
+    const user = getUserById(info.lastInsertRowid);
+    mirrorFullUser(user);
+    return { user, isNew: true };
+  } catch (err) {
+    // A row with this synthetic phone can already exist without being linked
+    // to this google_uid yet — e.g. it was created via the generic phone-based
+    // getOrCreateUser() path (used by every other /api/* route via the x-phone
+    // header) before this specific user ever completed a real Google sign-in.
+    // Rather than crash their login, claim that row: link it to this Google
+    // account instead of creating a duplicate that can't exist (phone is UNIQUE).
+    if (!/UNIQUE constraint failed/i.test(err.message)) throw err;
+    const byPhone = getUserByPhone(syntheticPhone);
+    if (!byPhone) throw err;
+    db.prepare(
+      'UPDATE users SET google_uid = @googleUid, auth_provider = @authProvider, email = COALESCE(email, @email), name = COALESCE(name, @name) WHERE id = @id'
+    ).run({ googleUid, authProvider: 'google', email: email || null, name: name || null, id: byPhone.id });
+    const user = getUserById(byPhone.id);
+    mirrorFullUser(user);
+    return { user, isNew: false };
+  }
 }
 
 const USER_FIELDS = new Set([
