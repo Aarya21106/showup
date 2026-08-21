@@ -9,6 +9,12 @@ export interface ChatMessage {
   created_at: string;
   delivered?: boolean;
   status?: 'sending' | 'sent' | 'delivered' | 'failed';
+  // Raw backend outbox_messages.id, kept only for acknowledging delivery — the
+  // display/dedup `id` above is a composite that also bakes in created_at, since a
+  // bare outbox id is NOT stable across a server-side database reset (autoincrement
+  // restarts from 1), which otherwise collides with old cached messages of the same
+  // small id and makes brand-new replies silently disappear from the dedup check.
+  serverId?: number;
 }
 
 export interface UserProfile {
@@ -138,7 +144,10 @@ export const ShowUpApi = {
     const api = getAxiosInstance();
     const response = await api.get('/api/chat-history', { params: { limit } });
     return (response.data.messages || []).map((m: any) => ({
-      id: m.id,
+      // "hist-" prefix keeps these from ever numerically colliding with live-polled
+      // "out-" ids (see getPendingMessages) — history rows are never acknowledged,
+      // so there's no need to preserve a raw numeric id for these.
+      id: `hist-${m.id}`,
       role: m.role,
       text: m.text,
       created_at: m.created_at,
@@ -151,12 +160,14 @@ export const ShowUpApi = {
     const api = getAxiosInstance();
     const response = await api.get('/api/messages');
     return (response.data.messages || []).map((m: any) => ({
-      id: m.id,
+      // Composite, reset-proof display id — see the `serverId` comment on ChatMessage.
+      id: `out-${m.id}-${m.created_at}`,
       role: 'model',
       text: m.body,
       media_url: m.media_url,
       created_at: m.created_at,
       status: 'delivered',
+      serverId: m.id,
     }));
   },
 

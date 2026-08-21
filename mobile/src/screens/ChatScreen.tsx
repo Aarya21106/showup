@@ -132,7 +132,11 @@ export const ChatScreen: React.FC = () => {
           return [...prev, ...newOnes];
         });
 
-        const idsToAck = pending.map((m) => Number(m.id)).filter((id) => !isNaN(id));
+        // Ack using the raw backend id (serverId), not the composite display `id`
+        // (e.g. "out-4-2026-08-21...") — the composite exists specifically so it
+        // can't collide with stale cached ids after a server-side database reset;
+        // parsing it back with Number() would just yield NaN.
+        const idsToAck = pending.map((m) => m.serverId).filter((id): id is number => typeof id === 'number' && !isNaN(id));
         await ShowUpApi.acknowledgeMessages(idsToAck);
         refreshProfile();
       }
