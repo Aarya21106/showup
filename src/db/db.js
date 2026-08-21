@@ -97,6 +97,128 @@ db.exec('CREATE INDEX IF NOT EXISTS idx_chat_messages_phone ON chat_messages(pho
 
 // We no longer force activity = 'gym' on startup or insert so users can choose running/walking/cycling.
 
+// ── Turso durability mirror ──────────────────────────────────────────────
+// Render's free web service plan has an EPHEMERAL filesystem: any file written
+// at runtime (including this SQLite database) is wiped on every redeploy and
+// on any container restart. Every write below is mirrored (fire-and-forget,
+// async) to a Turso (libSQL) database, which is genuinely persistent. On boot,
+// if the local file is empty (fresh container), it's hydrated back from Turso
+// before the server starts accepting traffic — see initTurso() in index.js.
+// The local better-sqlite3 instance remains the primary read/write path for
+// every existing caller in the codebase; this section only adds a mirror.
+let tursoClient = null;
+if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
+  const { createClient } = require('@libsql/client');
+  tursoClient = createClient({
+    url: process.env.TURSO_DATABASE_URL,
+    authToken: process.env.TURSO_AUTH_TOKEN,
+  });
+}
+
+function mirrorWrite(sql, params) {
+  if (!tursoClient) return;
+  tursoClient.execute({ sql, args: params }).catch((err) => {
+    console.error('[Turso] Mirror write failed:', err.message, '|', sql);
+  });
+}
+
+/** Runs a write (INSERT/UPDATE/DELETE) locally (sync, unchanged behavior) and mirrors it to Turso. */
+function runWrite(sql, params) {
+  const result = Array.isArray(params) ? db.prepare(sql).run(...params) : db.prepare(sql).run(params);
+  mirrorWrite(sql, params);
+  return result;
+}
+
+const ALL_MIGRATIONS = [
+  ...userColumnMigrations.map((m) => m[1]),
+  ...checkinColumnMigrations.map((m) => m[1]),
+  ...chatMessageColumnMigrations.map((m) => m[1]),
+];
+
+function withTimeout(promise, ms, label) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) => setTimeout(() => reject(new Error(`Timed out after ${ms}ms (${label})`)), ms)),
+  ]);
+}
+
+async function ensureTursoSchema() {
+  if (!tursoClient) return;
+  // Independent, idempotent statements — run in parallel rather than one-by-one,
+  // so a slow/degraded Turso region doesn't turn ~60 sequential calls into minutes.
+  const statements = schema.split(';').map((s) => s.trim()).filter(Boolean);
+  await Promise.allSettled(statements.map((stmt) =>
+    tursoClient.execute(stmt).catch((err) => console.error('[Turso] Schema statement failed:', err.message))
+  ));
+  await Promise.allSettled(ALL_MIGRATIONS.map((sql) =>
+    tursoClient.execute(sql).catch((err) => {
+      if (!/duplicate column/i.test(err.message)) console.error('[Turso] Migration failed:', sql, '|', err.message);
+    })
+  ));
+  try {
+    await tursoClient.execute('CREATE INDEX IF NOT EXISTS idx_chat_messages_phone ON chat_messages(phone);');
+  } catch (err) {}
+}
+
+const TURSO_TABLES = [
+  'users', 'checkins', 'nutrition_logs', 'burned_calories_logs', 'chat_messages',
+  'daily_summaries', 'outbox_messages', 'workout_logs', 'weight_logs',
+  'workout_schedule_overrides', 'weekly_reviews', 'device_tokens',
+];
+
+/** Pulls all data from Turso into the local file — only when local is empty (fresh container). */
+async function hydrateFromTurso() {
+  if (!tursoClient) return;
+  try {
+    const localCount = db.prepare('SELECT COUNT(*) as c FROM users').get().c;
+    if (localCount > 0) return; // local already has data — don't clobber a warm/persistent disk
+
+    db.pragma('foreign_keys = OFF');
+    for (const table of TURSO_TABLES) {
+      const result = await tursoClient.execute(`SELECT * FROM ${table}`);
+      if (!result.rows || result.rows.length === 0) continue;
+      const columns = result.columns;
+      const placeholders = columns.map(() => '?').join(',');
+      const insertStmt = db.prepare(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${placeholders})`);
+      const insertMany = db.transaction((rows) => {
+        for (const row of rows) insertStmt.run(columns.map((c) => row[c]));
+      });
+      insertMany(result.rows);
+      console.log(`[Turso] Hydrated ${result.rows.length} row(s) into local "${table}"`);
+    }
+    db.pragma('foreign_keys = ON');
+  } catch (err) {
+    console.error('[Turso] Hydration failed:', err.message);
+  }
+}
+
+/**
+ * Call once at startup, before the server accepts traffic (see src/index.js).
+ * No-op if TURSO_DATABASE_URL/TURSO_AUTH_TOKEN aren't set — local-only mode,
+ * same as before this durability layer existed (data will not survive a
+ * redeploy on an ephemeral host in that case).
+ */
+async function initTurso() {
+  if (!tursoClient) {
+    console.log('[Turso] Not configured — using local SQLite only. Data will NOT survive redeploys on an ephemeral host.');
+    return;
+  }
+
+  // Fail fast on a misconfigured/unreachable Turso instead of grinding through
+  // ~60 schema/migration statements first, each timing out individually.
+  try {
+    await withTimeout(tursoClient.execute('SELECT 1'), 8000, 'Turso connectivity check');
+  } catch (err) {
+    console.error(`[Turso] Unreachable (${err.message}) — falling back to local-only mode for this run. Data will NOT survive a redeploy until TURSO_DATABASE_URL/TURSO_AUTH_TOKEN are fixed.`);
+    tursoClient = null;
+    return;
+  }
+
+  await ensureTursoSchema();
+  await hydrateFromTurso();
+  console.log('[Turso] Ready — writes are mirrored for durability across redeploys.');
+}
+
 function getUserByPhone(phone) {
   return db.prepare('SELECT * FROM users WHERE phone = ?').get(phone);
 }
@@ -106,7 +228,7 @@ function getUserById(id) {
 }
 
 function createUser(phone) {
-  const info = db.prepare("INSERT INTO users (phone, activity) VALUES (?, NULL)").run(phone);
+  const info = runWrite('INSERT INTO users (phone, activity) VALUES (?, NULL)', [phone]);
   return getUserById(info.lastInsertRowid);
 }
 
@@ -132,9 +254,10 @@ function getOrCreateUserByGoogle({ googleUid, email, name }) {
   if (existing) return { user: existing, isNew: false };
 
   const syntheticPhone = `google:${googleUid}`;
-  const info = db.prepare(
-    'INSERT INTO users (phone, email, google_uid, auth_provider, name, activity) VALUES (?, ?, ?, ?, ?, NULL)'
-  ).run(syntheticPhone, email || null, googleUid, 'google', name || null);
+  const info = runWrite(
+    'INSERT INTO users (phone, email, google_uid, auth_provider, name, activity) VALUES (?, ?, ?, ?, ?, NULL)',
+    [syntheticPhone, email || null, googleUid, 'google', name || null]
+  );
   return { user: getUserById(info.lastInsertRowid), isNew: true };
 }
 
@@ -159,7 +282,7 @@ function updateUser(id, fields) {
   const keys = Object.keys(fields).filter((k) => USER_FIELDS.has(k));
   if (keys.length === 0) return getUserById(id);
   const setClause = keys.map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE users SET ${setClause} WHERE id = @id`).run({ ...fields, id });
+  runWrite(`UPDATE users SET ${setClause} WHERE id = @id`, { ...fields, id });
   return getUserById(id);
 }
 
@@ -172,24 +295,25 @@ function getAllUsers() {
 }
 
 function createCheckin({ userId, date, description, photoRef, status, geminiReason, photoHash, gesture, distanceKm, durationMinutes, paceMinPerKm, activityCalories, activityType }) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO checkins (user_id, date, description, photo_ref, status, gemini_reason, photo_hash, gesture, distance_km, duration_minutes, pace_min_per_km, activity_calories, activity_type)
-     VALUES (@userId, @date, @description, @photoRef, @status, @geminiReason, @photoHash, @gesture, @distanceKm, @durationMinutes, @paceMinPerKm, @activityCalories, @activityType)`
-  ).run({
-    userId,
-    date,
-    description: description || null,
-    photoRef: photoRef || null,
-    status: status || 'pending',
-    geminiReason: geminiReason || null,
-    photoHash: photoHash || null,
-    gesture: gesture || null,
-    distanceKm: distanceKm || null,
-    durationMinutes: durationMinutes || null,
-    paceMinPerKm: paceMinPerKm || null,
-    activityCalories: activityCalories || null,
-    activityType: activityType || null,
-  });
+     VALUES (@userId, @date, @description, @photoRef, @status, @geminiReason, @photoHash, @gesture, @distanceKm, @durationMinutes, @paceMinPerKm, @activityCalories, @activityType)`,
+    {
+      userId,
+      date,
+      description: description || null,
+      photoRef: photoRef || null,
+      status: status || 'pending',
+      geminiReason: geminiReason || null,
+      photoHash: photoHash || null,
+      gesture: gesture || null,
+      distanceKm: distanceKm || null,
+      durationMinutes: durationMinutes || null,
+      paceMinPerKm: paceMinPerKm || null,
+      activityCalories: activityCalories || null,
+      activityType: activityType || null,
+    }
+  );
   return getCheckinById(info.lastInsertRowid);
 }
 
@@ -203,7 +327,7 @@ function updateCheckin(id, fields) {
   const keys = Object.keys(fields).filter((k) => CHECKIN_FIELDS.has(k));
   if (keys.length === 0) return getCheckinById(id);
   const setClause = keys.map((k) => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE checkins SET ${setClause} WHERE id = @id`).run({ ...fields, id });
+  runWrite(`UPDATE checkins SET ${setClause} WHERE id = @id`, { ...fields, id });
   return getCheckinById(id);
 }
 
@@ -228,10 +352,11 @@ function hasDuplicatePhotoHash(userId, hash) {
 }
 
 function logNutrition({ userId, date, foodItem, weightG, calories, protein, carbs, fat }) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO nutrition_logs (user_id, date, food_item, weight_g, calories, protein, carbs, fat)
-     VALUES (@userId, @date, @foodItem, @weightG, @calories, @protein, @carbs, @fat)`
-  ).run({ userId, date, foodItem, weightG: weightG || null, calories, protein: protein || null, carbs: carbs || null, fat: fat || null });
+     VALUES (@userId, @date, @foodItem, @weightG, @calories, @protein, @carbs, @fat)`,
+    { userId, date, foodItem, weightG: weightG || null, calories, protein: protein || null, carbs: carbs || null, fat: fat || null }
+  );
   return info.lastInsertRowid;
 }
 
@@ -240,10 +365,11 @@ function getNutritionLogsToday(userId, date) {
 }
 
 function logBurnedCalories({ userId, date, activityName, caloriesBurned }) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO burned_calories_logs (user_id, date, activity_name, calories_burned)
-     VALUES (@userId, @date, @activityName, @caloriesBurned)`
-  ).run({ userId, date, activityName, caloriesBurned });
+     VALUES (@userId, @date, @activityName, @caloriesBurned)`,
+    { userId, date, activityName, caloriesBurned }
+  );
   return info.lastInsertRowid;
 }
 
@@ -257,7 +383,7 @@ function saveChatMessage(userId, role, text) {
   if (user) {
     phone = user.phone;
   }
-  db.prepare('INSERT INTO chat_messages (user_id, phone, role, text) VALUES (?, ?, ?, ?)').run(userId, phone, role, text);
+  runWrite('INSERT INTO chat_messages (user_id, phone, role, text) VALUES (?, ?, ?, ?)', [userId, phone, role, text]);
 }
 
 function getChatMessages(userId, limit = 20) {
@@ -275,11 +401,12 @@ function getRecentChatMessages(userId, limit = 100) {
 }
 
 function savePushToken(userId, pushToken, platform) {
-  db.prepare(
+  runWrite(
     `INSERT INTO device_tokens (user_id, push_token, platform)
      VALUES (@userId, @pushToken, @platform)
-     ON CONFLICT(push_token) DO UPDATE SET user_id = @userId, platform = @platform`
-  ).run({ userId, pushToken, platform: platform || null });
+     ON CONFLICT(push_token) DO UPDATE SET user_id = @userId, platform = @platform`,
+    { userId, pushToken, platform: platform || null }
+  );
 }
 
 function getPushTokensForUser(userId) {
@@ -287,7 +414,7 @@ function getPushTokensForUser(userId) {
 }
 
 function deletePushToken(pushToken) {
-  db.prepare('DELETE FROM device_tokens WHERE push_token = ?').run(pushToken);
+  runWrite('DELETE FROM device_tokens WHERE push_token = ?', [pushToken]);
 }
 
 // ── Memory layer helpers ──
@@ -304,20 +431,21 @@ function getProfileJson(userId) {
 
 function updateProfileJson(userId, profileObj) {
   const json = JSON.stringify(profileObj);
-  db.prepare('UPDATE users SET profile_json = ? WHERE id = ?').run(json, userId);
+  runWrite('UPDATE users SET profile_json = ? WHERE id = ?', [json, userId]);
 }
 
 function createDailySummary({ userId, date, summary, followUpWorthy, followUpDate }) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO daily_summaries (user_id, date, summary, follow_up_worthy, follow_up_date)
-     VALUES (@userId, @date, @summary, @followUpWorthy, @followUpDate)`
-  ).run({
-    userId,
-    date,
-    summary,
-    followUpWorthy: followUpWorthy ? 1 : 0,
-    followUpDate: followUpDate || null,
-  });
+     VALUES (@userId, @date, @summary, @followUpWorthy, @followUpDate)`,
+    {
+      userId,
+      date,
+      summary,
+      followUpWorthy: followUpWorthy ? 1 : 0,
+      followUpDate: followUpDate || null,
+    }
+  );
   return info.lastInsertRowid;
 }
 
@@ -334,7 +462,7 @@ function getDueFollowUps(today) {
 }
 
 function resolveFollowUp(summaryId) {
-  db.prepare('UPDATE daily_summaries SET follow_up_resolved = 1 WHERE id = ?').run(summaryId);
+  runWrite('UPDATE daily_summaries SET follow_up_resolved = 1 WHERE id = ?', [summaryId]);
 }
 
 function getChatMessagesByDate(userId, date) {
@@ -382,9 +510,10 @@ function getChatMessagesForWeek(userId, startDate, endDate) {
 // ── Outbox message queue (for native app) ──
 
 function queueOutboxMessage({ userId, phone, body, mediaUrl }) {
-  db.prepare(
-    'INSERT INTO outbox_messages (user_id, phone, body, media_url) VALUES (?, ?, ?, ?)'
-  ).run(userId, phone, body, mediaUrl || null);
+  runWrite(
+    'INSERT INTO outbox_messages (user_id, phone, body, media_url) VALUES (?, ?, ?, ?)',
+    [userId, phone, body, mediaUrl || null]
+  );
 }
 
 function getPendingMessages(userId) {
@@ -396,28 +525,30 @@ function getPendingMessages(userId) {
 function markMessagesDelivered(userId, messageIds) {
   if (!messageIds || messageIds.length === 0) return;
   const placeholders = messageIds.map(() => '?').join(',');
-  db.prepare(
-    `UPDATE outbox_messages SET delivered = 1 WHERE user_id = ? AND id IN (${placeholders})`
-  ).run(userId, ...messageIds);
+  runWrite(
+    `UPDATE outbox_messages SET delivered = 1 WHERE user_id = ? AND id IN (${placeholders})`,
+    [userId, ...messageIds]
+  );
 }
 
 // ── Workout, Weight, Schedule Overrides & Weekly Reviews ──
 
 function logWorkout(userId, { date, exerciseName, sets, reps, weightKg, rpe, status, notes }) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO workout_logs (user_id, date, exercise_name, sets, reps, weight_kg, rpe, status, notes)
-     VALUES (@userId, @date, @exerciseName, @sets, @reps, @weightKg, @rpe, @status, @notes)`
-  ).run({
-    userId,
-    date,
-    exerciseName,
-    sets: sets || null,
-    reps: reps || null,
-    weightKg: weightKg || null,
-    rpe: rpe || null,
-    status: status || 'completed',
-    notes: notes || null,
-  });
+     VALUES (@userId, @date, @exerciseName, @sets, @reps, @weightKg, @rpe, @status, @notes)`,
+    {
+      userId,
+      date,
+      exerciseName,
+      sets: sets || null,
+      reps: reps || null,
+      weightKg: weightKg || null,
+      rpe: rpe || null,
+      status: status || 'completed',
+      notes: notes || null,
+    }
+  );
   return info.lastInsertRowid;
 }
 
@@ -434,15 +565,11 @@ function getWorkoutLogsByDate(userId, date) {
 }
 
 function logWeight(userId, weight, date, notes) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO weight_logs (user_id, date, weight, notes)
-     VALUES (@userId, @date, @weight, @notes)`
-  ).run({
-    userId,
-    date,
-    weight,
-    notes: notes || null,
-  });
+     VALUES (@userId, @date, @weight, @notes)`,
+    { userId, date, weight, notes: notes || null }
+  );
   updateUser(userId, { weight });
   return info.lastInsertRowid;
 }
@@ -463,17 +590,18 @@ function getLatestWeight(userId) {
 }
 
 function createScheduleOverride(userId, { originalDate, rescheduledDate, sessionName, reason, status }) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO workout_schedule_overrides (user_id, original_date, rescheduled_date, session_name, status, reason)
-     VALUES (@userId, @originalDate, @rescheduledDate, @sessionName, @status, @reason)`
-  ).run({
-    userId,
-    originalDate,
-    rescheduledDate,
-    sessionName,
-    status: status || 'rescheduled',
-    reason: reason || null,
-  });
+     VALUES (@userId, @originalDate, @rescheduledDate, @sessionName, @status, @reason)`,
+    {
+      userId,
+      originalDate,
+      rescheduledDate,
+      sessionName,
+      status: status || 'rescheduled',
+      reason: reason || null,
+    }
+  );
   return info.lastInsertRowid;
 }
 
@@ -498,25 +626,26 @@ function updateScheduleOverride(overrideId, fields) {
   const keys = Object.keys(fields).filter(k => allowed.includes(k));
   if (keys.length === 0) return;
   const setClause = keys.map(k => `${k} = @${k}`).join(', ');
-  db.prepare(`UPDATE workout_schedule_overrides SET ${setClause} WHERE id = @overrideId`).run({ ...fields, overrideId });
+  runWrite(`UPDATE workout_schedule_overrides SET ${setClause} WHERE id = @overrideId`, { ...fields, overrideId });
 }
 
 function createWeeklyReview(userId, data) {
-  const info = db.prepare(
+  const info = runWrite(
     `INSERT INTO weekly_reviews (user_id, week_number, start_date, end_date, weight, workouts_completed, workouts_target, sleep_avg, recovery_rating, summary)
-     VALUES (@userId, @weekNumber, @startDate, @endDate, @weight, @workoutsCompleted, @workoutsTarget, @sleepAvg, @recoveryRating, @summary)`
-  ).run({
-    userId,
-    weekNumber: data.weekNumber || 1,
-    startDate: data.startDate || null,
-    endDate: data.endDate || null,
-    weight: data.weight || null,
-    workoutsCompleted: data.workoutsCompleted || 0,
-    workoutsTarget: data.workoutsTarget || 0,
-    sleepAvg: data.sleepAvg || null,
-    recoveryRating: data.recoveryRating || null,
-    summary: data.summary || null,
-  });
+     VALUES (@userId, @weekNumber, @startDate, @endDate, @weight, @workoutsCompleted, @workoutsTarget, @sleepAvg, @recoveryRating, @summary)`,
+    {
+      userId,
+      weekNumber: data.weekNumber || 1,
+      startDate: data.startDate || null,
+      endDate: data.endDate || null,
+      weight: data.weight || null,
+      workoutsCompleted: data.workoutsCompleted || 0,
+      workoutsTarget: data.workoutsTarget || 0,
+      sleepAvg: data.sleepAvg || null,
+      recoveryRating: data.recoveryRating || null,
+      summary: data.summary || null,
+    }
+  );
   return info.lastInsertRowid;
 }
 
@@ -526,8 +655,32 @@ function getWeeklyReviews(userId, limit = 5) {
   ).all(userId, limit);
 }
 
+/**
+ * Full account wipe used by the "/reset" conversation command — deletes every
+ * trace of a user across all tables. Centralized here (rather than raw db.db
+ * access from router.js) so the deletes go through runWrite() and are mirrored
+ * to Turso like every other write.
+ */
+function deleteUserCompletely(userId) {
+  db.pragma('foreign_keys = OFF');
+  try {
+    const tables = [
+      'checkins', 'nutrition_logs', 'burned_calories_logs', 'chat_messages',
+      'outbox_messages', 'workout_logs', 'weight_logs', 'workout_schedule_overrides',
+      'weekly_reviews', 'device_tokens', 'daily_summaries',
+    ];
+    for (const table of tables) {
+      runWrite(`DELETE FROM ${table} WHERE user_id = ?`, [userId]);
+    }
+    runWrite('DELETE FROM users WHERE id = ?', [userId]);
+  } finally {
+    db.pragma('foreign_keys = ON');
+  }
+}
+
 module.exports = {
   db,
+  initTurso,
   getUserByPhone,
   getUserById,
   getOrCreateUser,
@@ -581,4 +734,5 @@ module.exports = {
   getPushTokensForUser,
   deletePushToken,
   getRecentChatMessages,
+  deleteUserCompletely,
 };

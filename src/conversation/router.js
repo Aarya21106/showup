@@ -264,18 +264,11 @@ async function handleIncomingMessage({ phone, body, media }) {
   const cleanText = text.toLowerCase();
   if (cleanText === 'reset' || cleanText === '/reset') {
     console.log(`[Router] Resetting user ${phone} from database...`);
-    db.db.exec('PRAGMA foreign_keys = OFF;');
-    try {
-      db.db.prepare('DELETE FROM checkins WHERE user_id = ?').run(user.id);
-      db.db.prepare('DELETE FROM nutrition_logs WHERE user_id = ?').run(user.id);
-      db.db.prepare('DELETE FROM burned_calories_logs WHERE user_id = ?').run(user.id);
-      db.db.prepare('DELETE FROM chat_messages WHERE user_id = ?').run(user.id);
-      db.db.prepare('DELETE FROM outbox_messages WHERE user_id = ?').run(user.id);
-      db.db.prepare('DELETE FROM users WHERE id = ?').run(user.id);
-    } finally {
-      db.db.exec('PRAGMA foreign_keys = ON;');
-    }
-    
+    // Bug fix: this used to hit db.db (the raw better-sqlite3 instance) directly,
+    // bypassing the Turso durability mirror — deleteUserCompletely() goes through
+    // the same runWrite() path as every other write, so resets replicate too.
+    db.deleteUserCompletely(user.id);
+
     // Recreate a clean user record and start onboarding Q1
     db.getOrCreateUser(phone);
     await messaging.sendText(phone, messages.question('en', 'name'));

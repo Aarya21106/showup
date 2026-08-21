@@ -1,7 +1,7 @@
 const express = require('express');
 const path = require('path');
 const config = require('./config');
-require('./db/db'); // initializes the DB and applies schema on first import
+const db = require('./db/db'); // initializes the local DB and applies schema on first import
 
 const authRouter = require('./routes/auth');
 const apiRouter = require('./routes/api');
@@ -28,21 +28,33 @@ app.use('/admin', adminRouter);
 // Health check (no auth needed)
 app.get('/healthz', (req, res) => res.send('ok'));
 
-app.listen(config.port, () => {
-  console.log(`ShowUp API listening on http://localhost:${config.port}`);
+async function start() {
+  // Restores the local (ephemeral, on Render's free plan) SQLite file from
+  // Turso before accepting any traffic — must complete before the scheduler
+  // or any request handler can read/write user data.
+  await db.initTurso();
 
-  if (!config.geminiConfigured) {
-    console.warn('[config] GEMINI_API_KEY is not set - conversational replies and photo verification will fail until you add one.');
-  }
-  if (!config.paymentLinkUrl) {
-    console.warn('[config] PAYMENT_LINK_URL is not set - the deposit step will skip sending a payment link.');
-  }
-  if (!config.admin.password) {
-    console.warn('[config] ADMIN_PASSWORD is not set - /admin is running WITHOUT auth.');
-  }
-  if (!config.firebase.serviceAccountPath) {
-    console.warn('[config] FIREBASE_SERVICE_ACCOUNT_PATH is not set - API auth will fail.');
-  }
+  app.listen(config.port, () => {
+    console.log(`ShowUp API listening on http://localhost:${config.port}`);
 
-  startScheduler();
-});
+    if (!config.geminiConfigured) {
+      console.warn('[config] GEMINI_API_KEY is not set - conversational replies and photo verification will fail until you add one.');
+    }
+    if (!config.paymentLinkUrl) {
+      console.warn('[config] PAYMENT_LINK_URL is not set - the deposit step will skip sending a payment link.');
+    }
+    if (!config.admin.password) {
+      console.warn('[config] ADMIN_PASSWORD is not set - /admin is running WITHOUT auth.');
+    }
+    if (!config.firebase.serviceAccountPath) {
+      console.warn('[config] FIREBASE_SERVICE_ACCOUNT_PATH is not set - API auth will fail.');
+    }
+    if (!process.env.TURSO_DATABASE_URL || !process.env.TURSO_AUTH_TOKEN) {
+      console.warn('[config] TURSO_DATABASE_URL/TURSO_AUTH_TOKEN not set - user data will NOT survive a redeploy on Render\'s free plan.');
+    }
+
+    startScheduler();
+  });
+}
+
+start();
