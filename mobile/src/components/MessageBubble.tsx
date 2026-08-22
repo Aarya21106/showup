@@ -49,7 +49,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   })();
 
   // Detect special cards
-  const isPaymentLink = !isUser && (text.includes('razorpay.me') || text.includes('deposit'));
+  const isPaymentLink = !isUser && (text.includes('razorpay.me') || text.includes('rzp.io') || text.includes('deposit'));
   // Matches only the exact fixed phrasing the backend's needPhoto/needGesturePhoto/reminder
   // templates actually use (see messages.js) — a real, live "send your proof now" prompt.
   // Bug fix: this used to also match any message that merely mentioned "daily gesture" and
@@ -63,7 +63,13 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   const isDietLog = !isUser && text.includes('Diet Logged') && text.includes('kcal');
   const isBurnLog = !isUser && text.includes('Activity Logged') && text.includes('Burned');
 
-  const paymentUrlMatch = text.match(/(https?:\/\/[^\s]+(?:razorpay|pay)[^\s]*)/i);
+  // Bug fix: this used to require "razorpay" or "pay" inside the URL itself,
+  // but Razorpay's dynamic per-user Payment Links use short rzp.io URLs (e.g.
+  // https://rzp.io/rzp/FFbjvKef) that contain neither — the regex silently
+  // failed to match, so the raw link sat in the bubble as plain text instead
+  // of the clean card below. Once we already know it's a payment message
+  // (isPaymentLink), just grab whatever URL is in it.
+  const paymentUrlMatch = isPaymentLink ? text.match(/(https?:\/\/\S+)/i) : null;
   const paymentUrl = paymentUrlMatch ? paymentUrlMatch[1] : null;
 
   // Clean raw payment URL from text so only the clean card button is shown
@@ -121,7 +127,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
             activeOpacity={0.85}
           >
             <View style={styles.cardCTAContent}>
-              <Text style={styles.cardCTATitle}>Pay ₹300 Refundable Deposit</Text>
+              <Text style={styles.cardCTATitle}>{text.includes('Renewal') ? 'Pay Renewal' : 'Pay ₹300 Refundable Deposit'}</Text>
               <Text style={styles.cardCTASubtitle}>Tap to open secure payment</Text>
             </View>
             <ExternalLink size={17} color={Colors.bgMain} />

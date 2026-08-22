@@ -76,8 +76,8 @@ export const LightColors: ThemeColors = {
 
   online: '#30D158',
   offline: '#FF3B30',
-  tickActive: '#0A84FF',
-  tickSent: '#AEAEB2',
+  tickActive: '#FFFFFF',
+  tickSent: 'rgba(255, 255, 255, 0.65)',
 };
 
 // Apple Fitness-style dark theme — true black, elevated dark-gray cards, glowing accent.
@@ -117,8 +117,8 @@ export const DarkColors: ThemeColors = {
 
   online: '#30D158',
   offline: '#FF453A',
-  tickActive: '#34D399',
-  tickSent: '#636366',
+  tickActive: '#04170D',
+  tickSent: 'rgba(4, 23, 13, 0.55)',
 };
 
 // Kept as the default export name so any lingering static import still resolves

@@ -20,7 +20,6 @@ import { CustomHeader } from '../components/CustomHeader';
 import { MessageBubble } from '../components/MessageBubble';
 import { FloatingInputBar } from '../components/FloatingInputBar';
 import { CameraProofSheet } from '../components/CameraProofSheet';
-import { VoiceRecordSheet } from '../components/VoiceRecordSheet';
 import { PledgeDrawer } from '../components/PledgeDrawer';
 import { UserModal } from '../components/UserModal';
 import { ShowUpApi, ChatMessage } from '../api/client';
@@ -59,7 +58,6 @@ export const ChatScreen: React.FC = () => {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [isCameraOpen, setIsCameraOpen] = useState(false);
-  const [isVoiceSheetOpen, setIsVoiceSheetOpen] = useState(false);
   const [photoSheetMode, setPhotoSheetMode] = useState<'attach' | 'checkin'>('attach');
   const [initialPhotoCaption, setInitialPhotoCaption] = useState('');
   const [isPledgeDrawerOpen, setIsPledgeDrawerOpen] = useState(false);
@@ -383,7 +381,7 @@ export const ChatScreen: React.FC = () => {
             setInitialPhotoCaption(caption || '');
             setIsCameraOpen(true);
           }}
-          onAttachVoice={() => setIsVoiceSheetOpen(true)}
+          onSubmitVoice={handleSubmitVoice}
           canUseVoice={isPro}
           isLoading={isLoading}
         />
@@ -395,13 +393,6 @@ export const ChatScreen: React.FC = () => {
           initialCaption={initialPhotoCaption}
           onClose={() => setIsCameraOpen(false)}
           onSubmitProof={handleSubmitProof}
-        />
-
-        {/* Voice Message Sheet — Pro only, gated in FloatingInputBar/canUseVoice */}
-        <VoiceRecordSheet
-          visible={isVoiceSheetOpen}
-          onClose={() => setIsVoiceSheetOpen(false)}
-          onSubmitVoice={handleSubmitVoice}
         />
 
         {/* 30-Day Pledge Status Drawer */}
