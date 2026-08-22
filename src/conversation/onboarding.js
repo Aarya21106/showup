@@ -51,6 +51,11 @@ function getPaymentLinkForTier(tier) {
 
 const PROMO_CODE = 'SHOWUPSTARTTEST';
 const PROMO_TRIAL_DAYS = 14;
+// Promo users don't actually pay anything, but their pledge is still staked
+// on a recorded deposit amount (much smaller than the real ₹300) so payout
+// math at pledge-completion has something real to work from instead of the
+// full deposit they never paid.
+const PROMO_DEPOSIT_INR = 50;
 
 /**
  * Sends the deposit payment link for a tier — a real per-user Razorpay Payment
@@ -144,7 +149,7 @@ async function handleOnboarding(user, body, media) {
     // --- Promo code: free trial access, no payment needed ---
     if (text.trim().toUpperCase() === PROMO_CODE) {
       if (user.promo_code_used) {
-        await messaging.sendText(phone, 'That promo code has already been used on this account. Reply "1" for Basic or "2" for Pro, then send "paid" once your deposit is done.');
+        await messaging.sendText(phone, 'That promo code has already been used on this account. Reply "1" for Basic or "2" for Pro to get your deposit link — your account activates automatically once payment is confirmed.');
         return;
       }
       const today = todayStr(config.timezone);
@@ -156,11 +161,12 @@ async function handleOnboarding(user, body, media) {
         day_count: 0,
         trial_expires_at: addDaysStr(today, PROMO_TRIAL_DAYS),
         promo_code_used: PROMO_CODE,
+        deposit_amount_inr: PROMO_DEPOSIT_INR,
         state: states.AWAITING_NUTRITION_CHOICE,
       });
       const timeStr = updated.checkin_time || '08:00';
       const actStr = updated.activity || 'workout';
-      await messaging.sendText(phone, `Promo code accepted — you've got full Pro access free for ${PROMO_TRIAL_DAYS} days, no deposit needed.`);
+      await messaging.sendText(phone, `Promo code accepted — you've got full Pro access free for ${PROMO_TRIAL_DAYS} days, no payment needed. Your refundable deposit is set at ₹${PROMO_DEPOSIT_INR} (waived — you don't pay it).`);
       await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr, 'pro'));
       await messaging.sendText(phone, promptNutritionChoice(user));
       return;
@@ -211,7 +217,7 @@ async function handleOnboarding(user, body, media) {
       const aiReply = await gemini.handleGeneralQuery(user, text);
       if (aiReply) {
         await messaging.sendText(phone, aiReply +
-          '\n\nWhenever you\'re ready: reply "1" for Basic or "2" for Pro, then send "paid" once your deposit is done.');
+          '\n\nWhenever you\'re ready: reply "1" for Basic or "2" for Pro to get your deposit link.');
       }
     } else {
       const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });

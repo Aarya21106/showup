@@ -9,7 +9,10 @@ const config = require('../config');
  * - Additional slips cost ₹50 each.
  */
 function calculatePledgePayout(user, missedCount = 0) {
-  const deposit = config.depositAmountInr; // 300
+  // Promo-trial users never actually pay the full deposit — their pledge is
+  // staked on a smaller recorded amount (see onboarding.js's promo code
+  // branch), so refund math must use THEIR deposit, not the standard one.
+  const deposit = (user && user.deposit_amount_inr) || config.depositAmountInr; // 300
   const platformFee = config.platformFeeInr; // 30
   const baseRefund = deposit - platformFee; // 270
   const penaltyPerSlip = config.slipPenaltyInr; // 50

@@ -307,8 +307,8 @@ async function handleIncomingMessage({ phone, body, media }) {
   if (CHECKIN_STATES.has(user.state) && user.deposit_status === 'trial' && user.trial_expires_at) {
     const today = require('../utils/date').todayStr(require('../config').timezone);
     if (today > user.trial_expires_at) {
-      db.updateUser(user.id, { deposit_status: 'unpaid', tier: 'free', state: states.AWAITING_PAYMENT });
-      await messaging.sendText(phone, 'Your 14-day free trial has ended. To keep chatting with your coach, reply "1" for Basic or "2" for Pro, then send "paid" once your deposit is done — or send a new promo code if you have one.');
+      db.updateUser(user.id, { deposit_status: 'unpaid', tier: 'free', deposit_amount_inr: null, state: states.AWAITING_PAYMENT });
+      await messaging.sendText(phone, 'Your 14-day free trial has ended. To keep chatting with your coach, reply "1" for Basic or "2" for Pro to get your deposit link — your account activates automatically once payment is confirmed.');
       return;
     }
   }
