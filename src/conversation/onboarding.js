@@ -6,6 +6,7 @@ const db = require('../db/db');
 const gemini = require('../services/gemini');
 const messaging = require('../services/messaging');
 const config = require('../config');
+const razorpay = require('../services/razorpay');
 const { todayStr, addDaysStr } = require('../utils/date');
 const { isOffTopicQuestion } = require('../utils/intent');
 
@@ -50,6 +51,20 @@ function getPaymentLinkForTier(tier) {
 
 const PROMO_CODE = 'SHOWUPSTARTTEST';
 const PROMO_TRIAL_DAYS = 14;
+
+/**
+ * Sends the deposit payment link for a tier — a real per-user Razorpay Payment
+ * Link when Razorpay is configured (tagged with this user's id/tier in `notes`,
+ * so the webhook can auto-confirm payment without anyone needing to reply
+ * "paid"), falling back to the static link from env vars otherwise.
+ */
+async function sendDepositLink(user, tier) {
+  const dynamicLink = await razorpay.createDepositPaymentLink({ user, tier });
+  const link = dynamicLink || getPaymentLinkForTier(tier);
+  if (link) {
+    await messaging.sendText(user.phone, messages.t(user.language, 'paymentLink', link));
+  }
+}
 
 async function sendTierSelectionAsk(user) {
   // Show deposit rules + Basic vs Pro tier choice
@@ -113,22 +128,16 @@ async function handleOnboarding(user, body, media) {
     const tierUnselected = !user.tier || user.tier === 'free';
 
     if ((lower === '1' || /\bbasic\b/i.test(lower)) && tierUnselected) {
-      db.updateUser(user.id, { tier: 'basic' });
+      const updated = db.updateUser(user.id, { tier: 'basic' });
       await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'basic' }));
-      const link = getPaymentLinkForTier('basic');
-      if (link) {
-        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', link));
-      }
+      await sendDepositLink(updated, 'basic');
       return;
     }
 
     if ((lower === '2' || /\bpro\b/i.test(lower)) && tierUnselected) {
-      db.updateUser(user.id, { tier: 'pro' });
+      const updated = db.updateUser(user.id, { tier: 'pro' });
       await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'pro' }));
-      const link = getPaymentLinkForTier('pro');
-      if (link) {
-        await messaging.sendText(phone, messages.t(user.language, 'paymentLink', link));
-      }
+      await sendDepositLink(updated, 'pro');
       return;
     }
 
@@ -746,4 +755,4 @@ async function handleTimetableSetup(user, body) {
   }
 }
 
-module.exports = { handleOnboarding, sendTierSelectionAsk, handleTimetableSetup };
+module.exports = { handleOnboarding, sendTierSelectionAsk, handleTimetableSetup, promptNutritionChoice };

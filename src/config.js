@@ -20,6 +20,12 @@ const config = {
   paymentLinkUrlBasic: process.env.PAYMENT_LINK_URL_BASIC || '',
   paymentLinkUrlPro: process.env.PAYMENT_LINK_URL_PRO || '',
 
+  razorpay: {
+    keyId: process.env.RAZORPAY_KEY_ID || '',
+    keySecret: process.env.RAZORPAY_KEY_SECRET || '',
+    webhookSecret: process.env.RAZORPAY_WEBHOOK_SECRET || '',
+  },
+
   google: {
     webClientId: process.env.GOOGLE_WEB_CLIENT_ID || '',
   },

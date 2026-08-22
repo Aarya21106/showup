@@ -6,6 +6,7 @@ const db = require('./db/db'); // initializes the local DB and applies schema on
 const authRouter = require('./routes/auth');
 const apiRouter = require('./routes/api');
 const adminRouter = require('./routes/admin');
+const paymentsRouter = require('./routes/payments');
 const { startScheduler } = require('./scheduler');
 
 const app = express();
@@ -17,14 +18,23 @@ const app = express();
 // `1` trusts exactly one hop, matching Render's single reverse proxy.
 app.set('trust proxy', 1);
 
-// Parse JSON bodies for REST API
-app.use(express.json({ limit: '10mb' }));
+// Parse JSON bodies for REST API. The verify hook stashes the raw bytes on
+// req.rawBody — needed by the Razorpay webhook to check its signature, since
+// that's computed over the exact raw payload, not the re-serialized JSON.
+app.use(express.json({
+  limit: '10mb',
+  verify: (req, res, buf) => { req.rawBody = buf.toString('utf8'); },
+}));
 
 // Static files for poster images
 app.use('/posters', express.static(path.join(__dirname, '..', 'generated')));
 
 // Unauthenticated Auth endpoints (OTP send, verify, Firebase login)
 app.use('/api/auth', authRouter);
+
+// Razorpay webhook — unauthenticated (Firebase auth doesn't apply to a
+// server-to-server callback), authenticated instead by signature verification.
+app.use('/api/payments', paymentsRouter);
 
 // REST API routes (Firebase auth + rate limiting applied inside the router)
 app.use('/api', apiRouter);
