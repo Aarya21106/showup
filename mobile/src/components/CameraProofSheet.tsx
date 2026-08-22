@@ -12,7 +12,8 @@ import {
 } from 'react-native';
 import { Camera, Image as ImageIcon, X, Sparkles, AlertCircle, Check } from 'lucide-react-native';
 import * as ImagePicker from 'expo-image-picker';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 import { useAuth } from '../context/AuthContext';
 
 interface CameraProofSheetProps {
@@ -52,6 +53,8 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
   const [selectedImage, setSelectedImage] = useState<{ uri: string; base64: string } | null>(null);
   const [caption, setCaption] = useState(initialCaption);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   React.useEffect(() => {
     if (visible) {
@@ -268,7 +271,7 @@ export const CameraProofSheet: React.FC<CameraProofSheetProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',

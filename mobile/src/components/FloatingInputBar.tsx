@@ -10,7 +10,8 @@ import {
 } from 'react-native';
 import { ArrowUp, Image as ImageIcon, MessageSquare, Utensils, Activity, Calendar, Mic } from 'lucide-react-native';
 import * as Haptics from 'expo-haptics';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 
 interface FloatingInputBarProps {
   onSendMessage: (text: string) => void;
@@ -36,6 +37,8 @@ export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
   isLoading = false,
 }) => {
   const [text, setText] = useState('');
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   const handleSend = () => {
     const trimmed = text.trim();
@@ -141,7 +144,7 @@ export const FloatingInputBar: React.FC<FloatingInputBarProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   container: {
     backgroundColor: Colors.bgGlass,
     borderTopWidth: 1,

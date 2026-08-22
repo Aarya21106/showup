@@ -154,7 +154,8 @@ const T = {
       `   Everything in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics\n\n` +
       `Both tiers include the ₹${config.depositAmountInr} refundable deposit.\n` +
       `Consistent members get ₹${config.pricing.consistencyDiscount}/month off their subscription.\n\n` +
-      `Reply "1" for Basic or "2" for Pro.`,
+      `Reply "1" for Basic or "2" for Pro.\n` +
+      `Have a promo code? Just send it here for free trial access.`,
     depositAsk: ({ name, amt, tier }) =>
       `${tier === 'pro' ? 'Pro' : 'Basic'} tier selected.\n\n` +
       `Pay your ₹${config.depositAmountInr} refundable deposit to activate Day 1:\n`,

@@ -6,7 +6,7 @@ const db = require('../db/db');
 const gemini = require('../services/gemini');
 const messaging = require('../services/messaging');
 const config = require('../config');
-const { todayStr } = require('../utils/date');
+const { todayStr, addDaysStr } = require('../utils/date');
 const { isOffTopicQuestion } = require('../utils/intent');
 
 async function resolveImage(media) {
@@ -47,6 +47,9 @@ function getPaymentLinkForTier(tier) {
   if (tier === 'basic' && config.paymentLinkUrlBasic) return config.paymentLinkUrlBasic;
   return config.paymentLinkUrl;
 }
+
+const PROMO_CODE = 'SHOWUPSTARTTEST';
+const PROMO_TRIAL_DAYS = 14;
 
 async function sendTierSelectionAsk(user) {
   // Show deposit rules + Basic vs Pro tier choice
@@ -126,6 +129,31 @@ async function handleOnboarding(user, body, media) {
       if (link) {
         await messaging.sendText(phone, messages.t(user.language, 'paymentLink', link));
       }
+      return;
+    }
+
+    // --- Promo code: free trial access, no payment needed ---
+    if (text.trim().toUpperCase() === PROMO_CODE) {
+      if (user.promo_code_used) {
+        await messaging.sendText(phone, 'That promo code has already been used on this account. Reply "1" for Basic or "2" for Pro, then send "paid" once your deposit is done.');
+        return;
+      }
+      const today = todayStr(config.timezone);
+      const updated = db.updateUser(user.id, {
+        accountability_mode: 'accountability',
+        deposit_status: 'trial',
+        tier: 'pro',
+        started_at: today,
+        day_count: 0,
+        trial_expires_at: addDaysStr(today, PROMO_TRIAL_DAYS),
+        promo_code_used: PROMO_CODE,
+        state: states.AWAITING_NUTRITION_CHOICE,
+      });
+      const timeStr = updated.checkin_time || '08:00';
+      const actStr = updated.activity || 'workout';
+      await messaging.sendText(phone, `Promo code accepted — you've got full Pro access free for ${PROMO_TRIAL_DAYS} days, no deposit needed.`);
+      await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr, 'pro'));
+      await messaging.sendText(phone, promptNutritionChoice(user));
       return;
     }
 

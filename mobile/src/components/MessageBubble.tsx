@@ -16,7 +16,8 @@ import {
   AlertCircle,
   Clock,
 } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 import { ChatMessage } from '../api/client';
 
 interface MessageBubbleProps {
@@ -34,6 +35,8 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
 }) => {
   const isUser = message.role === 'user';
   const text = message.text;
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   // Format time (e.g., 07:18)
   const formattedTime = (() => {
@@ -186,7 +189,7 @@ export const MessageBubble: React.FC<MessageBubbleProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   container: {
     marginVertical: 3,
     paddingHorizontal: Spacing.md,
@@ -247,7 +250,7 @@ const styles = StyleSheet.create({
     lineHeight: 20.5,
   },
   userText: {
-    color: Colors.text,
+    color: Colors.userBubbleText,
     fontWeight: '400',
   },
   botText: {

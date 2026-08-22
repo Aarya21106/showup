@@ -11,9 +11,11 @@ import {
   Image,
   TouchableOpacity,
   Keyboard,
+  useColorScheme,
 } from 'react-native';
 import { X } from 'lucide-react-native';
-import { Colors, Spacing } from '../theme/colors';
+import { Spacing } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 import { CustomHeader } from '../components/CustomHeader';
 import { MessageBubble } from '../components/MessageBubble';
 import { FloatingInputBar } from '../components/FloatingInputBar';
@@ -64,6 +66,9 @@ export const ChatScreen: React.FC = () => {
   const [isUserModalOpen, setIsUserModalOpen] = useState(false);
   const [enlargedImage, setEnlargedImage] = useState<string | null>(null);
   const [isHistoryLoaded, setIsHistoryLoaded] = useState(false);
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
+  const isDarkScheme = useColorScheme() === 'dark';
 
   const flatListRef = useRef<FlatList>(null);
   const isPro = !!profile?.tier && profile.tier.startsWith('pro');
@@ -335,7 +340,7 @@ export const ChatScreen: React.FC = () => {
 
   return (
     <SafeAreaView style={styles.safeArea}>
-      <StatusBar barStyle="light-content" backgroundColor={Colors.bgMain} translucent />
+      <StatusBar barStyle={isDarkScheme ? 'light-content' : 'dark-content'} backgroundColor={Colors.bgMain} translucent />
 
       <KeyboardAvoidingView
         style={styles.container}
@@ -436,7 +441,7 @@ export const ChatScreen: React.FC = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   safeArea: {
     flex: 1,
     backgroundColor: Colors.bgMain,

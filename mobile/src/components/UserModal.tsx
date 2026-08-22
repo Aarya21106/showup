@@ -10,7 +10,8 @@ import {
   ActivityIndicator,
 } from 'react-native';
 import { X, Server, Phone, RotateCcw, Check, Sparkles, Bell, BellOff, Trash2 } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 import { useAuth } from '../context/AuthContext';
 import { enablePushNotifications, getNotificationPermissionStatus } from '../utils/notifications';
 
@@ -31,6 +32,8 @@ export const UserModal: React.FC<UserModalProps> = ({
   const [inputUrl, setInputUrl] = useState(serverUrl || 'http://10.131.110.142:3000');
   const [notifStatus, setNotifStatus] = useState<'unknown' | 'granted' | 'denied'>('unknown');
   const [isEnablingNotifs, setIsEnablingNotifs] = useState(false);
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   useEffect(() => {
     if (visible) {
@@ -206,7 +209,7 @@ export const UserModal: React.FC<UserModalProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',

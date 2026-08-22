@@ -1,7 +1,8 @@
 import React from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Platform, StatusBar } from 'react-native';
 import { Shield, Flame, ChevronRight, Activity } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 import { useAuth } from '../context/AuthContext';
 
 interface CustomHeaderProps {
@@ -16,6 +17,8 @@ export const CustomHeader: React.FC<CustomHeaderProps> = ({
   const { profile, isOnline } = useAuth();
   const streak = profile?.streak ?? 0;
   const dayCount = profile?.day_count ?? 1;
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   return (
     <View style={styles.container}>
@@ -67,7 +70,7 @@ export const CustomHeader: React.FC<CustomHeaderProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   container: {
     flexDirection: 'row',
     alignItems: 'center',

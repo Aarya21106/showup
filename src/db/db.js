@@ -67,6 +67,8 @@ const userColumnMigrations = [
   ['email', 'ALTER TABLE users ADD COLUMN email TEXT'],
   ['google_uid', 'ALTER TABLE users ADD COLUMN google_uid TEXT'],
   ['auth_provider', "ALTER TABLE users ADD COLUMN auth_provider TEXT DEFAULT 'phone'"],
+  ['trial_expires_at', 'ALTER TABLE users ADD COLUMN trial_expires_at TEXT DEFAULT NULL'],
+  ['promo_code_used', 'ALTER TABLE users ADD COLUMN promo_code_used TEXT DEFAULT NULL'],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -332,7 +334,7 @@ const USER_FIELDS = new Set([
   'post_workout_prompt_date', 'weekly_checkin_step', 'schedule_overrides',
   'nutrition_plan', 'nutrition_plan_source', 'nutrition_photo_ref',
   'meal_reminder_optin', 'meal_reminder_times', 'self_tracking_optin', 'tracking_decline_count',
-  'goal_timeframe',
+  'goal_timeframe', 'trial_expires_at', 'promo_code_used',
 ]);
 
 function updateUser(id, fields) {

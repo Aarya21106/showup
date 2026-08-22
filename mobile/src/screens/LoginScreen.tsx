@@ -11,13 +11,15 @@ import {
   Alert,
   SafeAreaView,
   TextInput,
+  Image,
+  useColorScheme,
 } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import * as Haptics from 'expo-haptics';
 import Constants from 'expo-constants';
-import { ShieldCheck, Server } from 'lucide-react-native';
+import { Server } from 'lucide-react-native';
 import { GoogleSignin, statusCodes } from '@react-native-google-signin/google-signin';
 import { useAuth } from '../context/AuthContext';
+import { useTheme } from '../theme/useTheme';
 
 interface LoginScreenProps {
   onOtpSent: () => void;
@@ -39,6 +41,9 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
   const [loading, setLoading] = useState(false);
   const [showServerConfig, setShowServerConfig] = useState(false);
   const [customUrl, setCustomUrl] = useState(serverUrl);
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
+  const isDark = useColorScheme() === 'dark';
 
   useEffect(() => {
     ensureGoogleConfigured();
@@ -97,19 +102,12 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
         <ScrollView contentContainerStyle={styles.scrollContent} keyboardShouldPersistTaps="handled">
           {/* Header Brand */}
           <View style={styles.brandContainer}>
-            <LinearGradient
-              colors={['#059669', '#10B981']}
-              start={{ x: 0, y: 0 }}
-              end={{ x: 1, y: 1 }}
-              style={styles.logoBadge}
-            >
-              <ShieldCheck size={32} color="#FFFFFF" />
-            </LinearGradient>
-            <Text style={styles.brandTitle}>ShowUp</Text>
-            <Text style={styles.brandSubtitle}>Your AI Accountability Coach</Text>
-            <View style={styles.tagBadge}>
-              <Text style={styles.tagText}>30-Day Fitness Pledge</Text>
-            </View>
+            <Image
+              source={isDark ? require('../../assets/logo-white.png') : require('../../assets/logo-black.png')}
+              style={styles.logoImage}
+              resizeMode="contain"
+            />
+            <Text style={styles.brandSubtitle}>Your AI accountability coach</Text>
           </View>
 
           {/* Login Card */}
@@ -143,8 +141,8 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
             style={styles.serverToggle}
             onPress={() => setShowServerConfig(!showServerConfig)}
           >
-            <View style={[styles.statusDot, { backgroundColor: isOnline ? '#10B981' : '#EF4444' }]} />
-            <Server size={14} color="#94A3B8" />
+            <View style={[styles.statusDot, { backgroundColor: isOnline ? Colors.online : Colors.offline }]} />
+            <Server size={14} color={Colors.textMuted} />
             <Text style={styles.serverToggleText}>
               Backend: {isOnline ? 'Connected' : 'Offline'} ({serverUrl.replace(/https?:\/\//, '').slice(0, 24)}...)
             </Text>
@@ -160,7 +158,7 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
                 autoCapitalize="none"
                 autoCorrect={false}
                 placeholder="http://10.131.110.142:3000"
-                placeholderTextColor="#64748B"
+                placeholderTextColor={Colors.textDim}
               />
               <View style={styles.serverBtnRow}>
                 <TouchableOpacity style={styles.serverSaveBtn} onPress={handleSaveServerUrl}>
@@ -183,10 +181,10 @@ export const LoginScreen: React.FC<LoginScreenProps> = () => {
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#0F172A',
+    backgroundColor: Colors.bgMain,
   },
   scrollContent: {
     flexGrow: 1,
@@ -195,67 +193,39 @@ const styles = StyleSheet.create({
   },
   brandContainer: {
     alignItems: 'center',
-    marginBottom: 32,
+    marginBottom: 40,
   },
-  logoBadge: {
-    width: 64,
-    height: 64,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 16,
-    shadowColor: '#10B981',
-    shadowOffset: { width: 0, height: 8 },
-    shadowOpacity: 0.35,
-    shadowRadius: 16,
-    elevation: 8,
-  },
-  brandTitle: {
-    fontSize: 32,
-    fontWeight: '800',
-    color: '#F8FAFC',
-    letterSpacing: -0.5,
+  logoImage: {
+    width: 176,
+    height: 68,
   },
   brandSubtitle: {
-    fontSize: 15,
-    color: '#94A3B8',
-    marginTop: 4,
-  },
-  tagBadge: {
-    marginTop: 12,
-    backgroundColor: 'rgba(16, 185, 129, 0.12)',
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: 'rgba(16, 185, 129, 0.25)',
-  },
-  tagText: {
-    color: '#10B981',
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 16,
+    fontWeight: '500',
   },
   card: {
-    backgroundColor: '#1E293B',
+    backgroundColor: Colors.bgCard,
     borderRadius: 24,
     padding: 24,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.08)',
+    borderColor: Colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 12 },
-    shadowOpacity: 0.3,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.06,
     shadowRadius: 20,
-    elevation: 6,
+    elevation: 2,
   },
   cardHeading: {
     fontSize: 18,
     fontWeight: '700',
-    color: '#F8FAFC',
+    color: Colors.text,
     marginBottom: 6,
   },
   cardSubheading: {
     fontSize: 13,
-    color: '#94A3B8',
+    color: Colors.textMuted,
     lineHeight: 18,
     marginBottom: 20,
   },
@@ -266,11 +236,13 @@ const styles = StyleSheet.create({
     backgroundColor: '#FFFFFF',
     borderRadius: 16,
     paddingVertical: 15,
+    borderWidth: 1,
+    borderColor: Colors.border,
     shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.15,
-    shadowRadius: 8,
-    elevation: 3,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.06,
+    shadowRadius: 6,
+    elevation: 1,
   },
   buttonDisabled: {
     opacity: 0.6,
@@ -308,29 +280,29 @@ const styles = StyleSheet.create({
   },
   serverToggleText: {
     fontSize: 12,
-    color: '#64748B',
+    color: Colors.textMuted,
   },
   serverConfigCard: {
-    backgroundColor: '#1E293B',
+    backgroundColor: Colors.bgCard,
     borderRadius: 16,
     padding: 16,
     marginTop: 12,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.06)',
+    borderColor: Colors.border,
   },
   serverConfigLabel: {
-    color: '#94A3B8',
+    color: Colors.textMuted,
     fontSize: 12,
     marginBottom: 6,
   },
   serverInput: {
-    backgroundColor: '#0F172A',
+    backgroundColor: Colors.bgInput,
     borderRadius: 10,
     padding: 10,
-    color: '#F8FAFC',
+    color: Colors.text,
     fontSize: 13,
     borderWidth: 1,
-    borderColor: 'rgba(255, 255, 255, 0.1)',
+    borderColor: Colors.border,
     marginBottom: 10,
   },
   serverBtnRow: {
@@ -339,7 +311,7 @@ const styles = StyleSheet.create({
   },
   serverSaveBtn: {
     flex: 1,
-    backgroundColor: '#10B981',
+    backgroundColor: Colors.primary,
     borderRadius: 8,
     paddingVertical: 8,
     alignItems: 'center',
@@ -351,19 +323,21 @@ const styles = StyleSheet.create({
   },
   serverTestBtn: {
     flex: 1,
-    backgroundColor: 'rgba(255, 255, 255, 0.06)',
+    backgroundColor: Colors.bgCardElevated,
     borderRadius: 8,
     paddingVertical: 8,
     alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.border,
   },
   serverTestBtnText: {
-    color: '#E2E8F0',
+    color: Colors.textSecondary,
     fontWeight: '600',
     fontSize: 12,
   },
   footerText: {
     textAlign: 'center',
-    color: '#64748B',
+    color: Colors.textDim,
     fontSize: 11,
     lineHeight: 16,
     marginTop: 24,

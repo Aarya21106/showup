@@ -11,7 +11,8 @@ import {
 import { Mic, X, Check, Square, Trash2 } from 'lucide-react-native';
 import { useAudioRecorder, AudioModule, IOSOutputFormat, AudioQuality, type RecordingOptions } from 'expo-audio';
 import { File } from 'expo-file-system';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 
 // The built-in RecordingPresets.HIGH_QUALITY wraps AAC in an .m4a (MPEG-4)
 // container on both platforms — but Gemini's "audio/aac" MIME type expects a
@@ -70,6 +71,8 @@ export const VoiceRecordSheet: React.FC<VoiceRecordSheetProps> = ({
   const [isSubmitting, setIsSubmitting] = useState(false);
   const startedAtRef = useRef<number | null>(null);
   const tickRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   useEffect(() => {
     if (!visible) {
@@ -222,7 +225,7 @@ export const VoiceRecordSheet: React.FC<VoiceRecordSheetProps> = ({
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',

@@ -1,10 +1,11 @@
 import React, { useState } from 'react';
-import { View, ActivityIndicator, StyleSheet, StatusBar } from 'react-native';
+import { View, ActivityIndicator, StyleSheet, StatusBar, useColorScheme } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { AuthProvider, useAuth } from './src/context/AuthContext';
 import { ChatScreen } from './src/screens/ChatScreen';
 import { LoginScreen } from './src/screens/LoginScreen';
 import { OtpScreen } from './src/screens/OtpScreen';
+import { useTheme } from './src/theme/useTheme';
 
 // Controls how a notification is presented while the app is foregrounded —
 // without this, Expo's default is to NOT show an alert while the app is open.
@@ -20,12 +21,14 @@ Notifications.setNotificationHandler({
 function MainNavigator() {
   const { isAuthenticated, isLoadingSession } = useAuth();
   const [authStep, setAuthStep] = useState<'login' | 'otp'>('login');
+  const Colors = useTheme();
+  const isDark = useColorScheme() === 'dark';
 
   if (isLoadingSession) {
     return (
-      <View style={styles.loadingContainer}>
-        <StatusBar barStyle="light-content" backgroundColor="#0F172A" />
-        <ActivityIndicator size="large" color="#10B981" />
+      <View style={[styles.loadingContainer, { backgroundColor: Colors.bgMain }]}>
+        <StatusBar barStyle={isDark ? 'light-content' : 'dark-content'} backgroundColor={Colors.bgMain} />
+        <ActivityIndicator size="large" color={Colors.primary} />
       </View>
     );
   }

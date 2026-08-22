@@ -16,7 +16,8 @@ import {
   TrendingUp,
   CreditCard,
 } from 'lucide-react-native';
-import { Colors, Spacing, BorderRadius } from '../theme/colors';
+import { Spacing, BorderRadius } from '../theme/colors';
+import { useTheme } from '../theme/useTheme';
 import { useAuth } from '../context/AuthContext';
 
 interface PledgeDrawerProps {
@@ -32,6 +33,8 @@ export const PledgeDrawer: React.FC<PledgeDrawerProps> = ({ visible, onClose }) 
   const missedCount = profile?.missed_count ?? 0;
   const depositStatus = profile?.deposit_status ?? 'paid';
   const progressPercent = Math.min(100, Math.round((dayCount / 30) * 100));
+  const Colors = useTheme();
+  const styles = getStyles(Colors);
 
   // Compute estimated payout
   const estimatedPayout = Math.max(0, 500 - (missedCount * 50));
@@ -144,7 +147,7 @@ export const PledgeDrawer: React.FC<PledgeDrawerProps> = ({ visible, onClose }) 
   );
 };
 
-const styles = StyleSheet.create({
+const getStyles = (Colors: ReturnType<typeof useTheme>) => StyleSheet.create({
   overlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.75)',
