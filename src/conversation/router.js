@@ -243,6 +243,19 @@ async function handleIncomingMessage({ phone, body, media }) {
     if (!isNew) {
       autoCorrectUserLanguage(user, text);
       checkForHealthProfileUpdates(user, text);
+
+      // Sending the exact same message twice in a row (accidental double-tap,
+      // or a retried request) used to run the full flow again and produce the
+      // identical reply a second time — reads as a scripted glitch, and since
+      // the state hasn't moved, a repeated answer can't advance anything
+      // anyway. Say so instead of silently repeating.
+      const lastUserMsg = db.getLastMessageByRole(user.id, 'user');
+      if (lastUserMsg && lastUserMsg.text.trim().toLowerCase() === text.toLowerCase() &&
+          !/^(reset|\/reset)$/i.test(text)) {
+        db.saveChatMessage(user.id, 'user', text);
+        await messaging.sendText(phone, "I see you've sent that again — did you mean to add or change something?");
+        return;
+      }
     }
     db.saveChatMessage(user.id, 'user', text);
 

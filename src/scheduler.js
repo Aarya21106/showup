@@ -160,10 +160,10 @@ async function sweepAndPrompt(user, today, yesterday) {
     const discount = calculateSubscriptionDiscount(missed, user.tier === 'pro');
 
     let discountText = '';
-    if (missed === 0) {
-      discountText = `Unlocked ₹${config.pricing.consistencyDiscount}/mo consistency discount on your Month-2 subscription! (Basic: ₹${config.pricing.basic.minAfterDiscount}/mo down from ₹${config.pricing.basic.monthly} | Pro: ₹${config.pricing.pro.minAfterDiscount}/mo down from ₹${config.pricing.pro.monthly})`;
+    if (discount.totalDiscount > 0) {
+      discountText = `Unlocked ₹${discount.totalDiscount}/mo consistency discount on your Month-2 subscription (₹${config.weeklyDiscountInr}/clean week × ${discount.cleanWeeks} clean weeks)! Your rate: ₹${discount.finalPrice}/mo, down from ₹${discount.basePrice}/mo.`;
     } else {
-      discountText = `Month-2 subscription rate: Basic: ₹${config.pricing.basic.monthly}/mo | Pro: ₹${config.pricing.pro.monthly}/mo (maintain 0 slips next month to get the ₹${config.pricing.consistencyDiscount} consistency discount).`;
+      discountText = `Month-2 subscription rate: Basic: ₹${config.pricing.basic.monthly}/mo | Pro: ₹${config.pricing.pro.monthly}/mo (₹${config.weeklyDiscountInr} off per clean week next month, up to ₹${config.maxDiscountInr}/mo for full consistency).`;
     }
 
     db.updateUser(user.id, {
@@ -530,10 +530,10 @@ async function sendWeeklySummaries() {
       const discount = calculateSubscriptionDiscount(missed, user.tier === 'pro');
 
       let discountText = '';
-      if (missed === 0) {
-        discountText = `On track for ₹${config.pricing.consistencyDiscount}/mo consistency discount on Month-2 subscription (Basic: ₹${config.pricing.basic.minAfterDiscount}/mo | Pro: ₹${config.pricing.pro.minAfterDiscount}/mo)`;
+      if (discount.totalDiscount > 0) {
+        discountText = `On track for ₹${discount.totalDiscount}/mo consistency discount on Month-2 subscription so far (₹${config.weeklyDiscountInr}/clean week × ${discount.cleanWeeks} clean weeks) — keep it up for up to ₹${config.maxDiscountInr}/mo off.`;
       } else {
-        discountText = `Current Month-2 subscription rate: Basic: ₹${config.pricing.basic.monthly}/mo | Pro: ₹${config.pricing.pro.monthly}/mo`;
+        discountText = `Current Month-2 subscription rate: Basic: ₹${config.pricing.basic.monthly}/mo | Pro: ₹${config.pricing.pro.monthly}/mo (₹${config.weeklyDiscountInr} off per clean week, up to ₹${config.maxDiscountInr}/mo).`;
       }
 
       db.updateUser(user.id, { last_weekly_summary_date: today });

@@ -53,17 +53,23 @@ function calculatePledgePayout(user, missedCount = 0) {
 
 /**
  * Calculates month-2 subscription pricing based on consistency.
- * If user completes the pledge with 0 misses, they get ₹10 consistency discount.
- * - Basic: ₹129/mo base → ₹119/mo discounted
- * - Pro: ₹239/mo base → ₹229/mo discounted
+ * ₹10 off per clean (zero-miss) week, not a flat monthly discount — a fully
+ * consistent ~4-week month earns 4 × ₹10 = ₹40 off, capped at
+ * config.maxDiscountInr. Bug fix: this used to be a single all-or-nothing
+ * ₹10/month discount that ignored how many weeks were actually clean.
+ * - Basic: ₹129/mo base → ₹89/mo at full consistency
+ * - Pro: ₹239/mo base → ₹199/mo at full consistency
  */
 function calculateSubscriptionDiscount(missedCount = 0, isProTier = false) {
-  const totalDiscount = missedCount === 0 ? config.pricing.consistencyDiscount : 0;
+  const totalWeeksInMonth = 4;
+  const cleanWeeks = Math.max(0, totalWeeksInMonth - missedCount);
+  const totalDiscount = Math.min(cleanWeeks * config.weeklyDiscountInr, config.maxDiscountInr);
   const basePrice = isProTier ? config.pricing.pro.monthly : config.pricing.basic.monthly;
   const finalPrice = basePrice - totalDiscount;
 
   return {
     missedCount,
+    cleanWeeks,
     totalDiscount,
     basePrice,
     finalPrice,

@@ -44,12 +44,11 @@ const config = {
   slipPenaltyInr: parseInt(process.env.SLIP_PENALTY_INR || '50', 10),
   freeStrikesThresholdDays: 10, // if workout days > 10 per month
   freeStrikesCount: 2, // 2 strikes without penalty
-  weeklyDiscountInr: 10, // ₹10 off per clean week
-  maxDiscountInr: 40, // max ₹40 discount per month
+  weeklyDiscountInr: 10, // ₹10 off per clean (zero-miss) week
+  maxDiscountInr: 40, // cap: 4 clean weeks × ₹10 = ₹40/month for full consistency
   pricing: {
-    basic: { monthly: 129, minAfterDiscount: 119 },
-    pro:   { monthly: 239, minAfterDiscount: 229 },
-    consistencyDiscount: 10,  // ₹10 off per month for clean consistency
+    basic: { monthly: 129, minAfterDiscount: 89 },  // 129 - maxDiscountInr
+    pro:   { monthly: 239, minAfterDiscount: 199 }, // 239 - maxDiscountInr
   },
 };
 

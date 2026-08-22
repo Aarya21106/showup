@@ -153,12 +153,12 @@ const T = {
       `2. Pro — ₹${config.pricing.pro.monthly}/month\n` +
       `   Everything in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics\n\n` +
       `Both tiers include the ₹${config.depositAmountInr} refundable deposit.\n` +
-      `Consistent members get ₹${config.pricing.consistencyDiscount}/month off their subscription.\n\n` +
+      `Consistent members get ₹${config.weeklyDiscountInr} off per clean week — up to ₹${config.maxDiscountInr}/month if you're fully consistent.\n\n` +
       `Reply "1" for Basic or "2" for Pro.\n` +
       `Have a promo code? Just send it here for free trial access.`,
     depositAsk: ({ name, amt, tier }) =>
       `${tier === 'pro' ? 'Pro' : 'Basic'} tier selected.\n\n` +
-      `Pay your ₹${config.depositAmountInr} refundable deposit to activate Day 1:\n`,
+      `Pay your ₹${config.depositAmountInr} refundable deposit to activate Day 1, or send a promo code if you have one:\n`,
     howItWorks: () =>
       "Daily check-in routine:\n" +
       "1. I message you before your chosen workout time with today's target.\n" +
@@ -167,7 +167,7 @@ const T = {
     paymentLink: (url) => `Deposit link:\n${url}\n\nYour account activates automatically the moment payment is confirmed.`,
     notPaidYet: () => `Pay your ₹${config.depositAmountInr} deposit using the link above — your account activates automatically once it's confirmed.`,
     paidConfirmed: (time, activity, tier) =>
-      `Deposit confirmed. Your ${tier === 'pro' ? 'Pro' : 'Basic'} membership is now active.\n\n` +
+      `Yes, your payment has been confirmed! Your ${tier === 'pro' ? 'Pro' : 'Basic'} membership is now active.\n\n` +
       `I will message you daily before ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
     day1Intro: (time, activity) => `You're set. Today is Day 1.\n\nI'll send your workout before training and ask you to log your results afterward.\n\nYour first job: show up.`,
     dailyPrompt: (activity, gestureText) => `Time to show up. Send your workout update and a photo showing ${getProofInstruction('en', activity, gestureText)}.`,

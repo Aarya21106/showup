@@ -485,6 +485,11 @@ function saveChatMessage(userId, role, text) {
   );
 }
 
+function getLastMessageByRole(userId, role) {
+  return db.prepare('SELECT text FROM chat_messages WHERE user_id = ? AND role = ? ORDER BY created_at DESC, id DESC LIMIT 1')
+    .get(userId, role);
+}
+
 function getChatMessages(userId, limit = 20) {
   return db.prepare('SELECT role, text FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?')
     .all(userId, limit)
@@ -803,6 +808,7 @@ module.exports = {
   getBurnedCaloriesLogsToday,
   saveChatMessage,
   getChatMessages,
+  getLastMessageByRole,
   getProfileJson,
   updateProfileJson,
   createDailySummary,

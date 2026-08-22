@@ -166,8 +166,10 @@ async function handleOnboarding(user, body, media) {
       });
       const timeStr = updated.checkin_time || '08:00';
       const actStr = updated.activity || 'workout';
-      await messaging.sendText(phone, `Promo code accepted — you've got full Pro access free for ${PROMO_TRIAL_DAYS} days, no payment needed. Your refundable deposit is set at ₹${PROMO_DEPOSIT_INR} (waived — you don't pay it).`);
-      await messaging.sendText(phone, messages.t(user.language, 'paidConfirmed', timeStr, actStr, 'pro'));
+      // Bug fix: this used to follow up with the generic paidConfirmed
+      // message ("Yes, your payment has been confirmed!") — wrong for a
+      // promo grant, since no payment ever happens here.
+      await messaging.sendText(phone, `You got a free ₹${PROMO_DEPOSIT_INR} in your deposit and a 14-day Pro account — no payment needed.\n\nI will message you daily before ${timeStr} for your ${actStr} check-in.`);
       await messaging.sendText(phone, promptNutritionChoice(user));
       return;
     }
@@ -178,7 +180,7 @@ async function handleOnboarding(user, body, media) {
       // don't silently guess for them — ask first, since this was the source of
       // repeated "why is my account on the wrong tier" confusion.
       if (tierUnselected) {
-        await messaging.sendText(phone, 'Which plan are you paying for? Reply "1" for Basic or "2" for Pro first, then send "paid".');
+        await messaging.sendText(phone, 'Which plan are you paying for? Reply "1" for Basic or "2" for Pro first to get your deposit link.');
         return;
       }
 
