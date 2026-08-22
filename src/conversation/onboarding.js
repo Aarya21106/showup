@@ -175,6 +175,19 @@ async function handleOnboarding(user, body, media) {
         await messaging.sendText(phone, 'Which plan are you paying for? Reply "1" for Basic or "2" for Pro first, then send "paid".');
         return;
       }
+
+      // Bug fix: this used to activate the account purely from the word "paid" —
+      // anyone could type it and get instant Pro access with no actual payment.
+      // Now that Razorpay is configured, real payment is confirmed automatically
+      // by its webhook (see routes/payments.js) the moment money actually moves.
+      // Typing "paid" is only ever trusted as a last-resort fallback when
+      // Razorpay isn't configured at all (no keys set) — otherwise it's just a
+      // status check, never an activation.
+      if (config.razorpay.keyId && config.razorpay.keySecret) {
+        await messaging.sendText(phone, "I haven't received confirmation of that payment yet. If you just paid, give it a minute — your account activates automatically the moment it's confirmed. If it's been a while, double check the payment went through on your end.");
+        return;
+      }
+
       const activeTier = user.tier;
       const today = todayStr(config.timezone);
       const updated = db.updateUser(user.id, {

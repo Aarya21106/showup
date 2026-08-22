@@ -164,8 +164,8 @@ const T = {
       "1. I message you before your chosen workout time with today's target.\n" +
       "2. You complete your workout and reply with one line of text and a photo showing the daily gesture.\n" +
       "3. Show up consistently, retain your deposit, and build unstoppable consistency.",
-    paymentLink: (url) => `Deposit link:\n${url}\n\nOnce deposited, reply with "paid" to activate Day 1.`,
-    notPaidYet: () => `Pay your ₹${config.depositAmountInr} deposit and reply "paid" to activate Day 1.`,
+    paymentLink: (url) => `Deposit link:\n${url}\n\nYour account activates automatically the moment payment is confirmed.`,
+    notPaidYet: () => `Pay your ₹${config.depositAmountInr} deposit using the link above — your account activates automatically once it's confirmed.`,
     paidConfirmed: (time, activity, tier) =>
       `Deposit confirmed. Your ${tier === 'pro' ? 'Pro' : 'Basic'} membership is now active.\n\n` +
       `I will message you daily before ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
