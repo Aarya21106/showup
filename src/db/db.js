@@ -464,6 +464,8 @@ function getBurnedCaloriesLogsToday(userId, date) {
   return db.prepare('SELECT * FROM burned_calories_logs WHERE user_id = ? AND date = ?').all(userId, date);
 }
 
+const CHAT_HISTORY_LIMIT = 10;
+
 function saveChatMessage(userId, role, text) {
   let phone = null;
   const user = getUserById(userId);
@@ -471,6 +473,16 @@ function saveChatMessage(userId, role, text) {
     phone = user.phone;
   }
   runWrite('INSERT INTO chat_messages (user_id, phone, role, text) VALUES (?, ?, ?, ?)', [userId, phone, role, text]);
+
+  // Keep only the most recent CHAT_HISTORY_LIMIT messages per user — a
+  // rolling window, not unbounded history. Runs on every save so the table
+  // never grows past this per-user cap.
+  runWrite(
+    `DELETE FROM chat_messages WHERE user_id = ? AND id NOT IN (
+       SELECT id FROM chat_messages WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT ?
+     )`,
+    [userId, userId, CHAT_HISTORY_LIMIT]
+  );
 }
 
 function getChatMessages(userId, limit = 20) {
