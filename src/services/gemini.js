@@ -1850,8 +1850,8 @@ Keep it under 30 words. One sentence, maybe two max.`;
 /**
  * Dynamic Q&A during AWAITING_PAYMENT state:
  * Answers user questions about terms & conditions, refundable deposit, platform fee,
- * 2 free strikes, slip penalties, 14-day free trial, and differences between
- * Standard (₹119/mo) and Pro (₹239/mo) plans.
+ * 2 free strikes, slip penalties, 14-day free trial, promo codes, and differences
+ * between the Basic and Pro plans.
  */
 async function answerPaymentAndTermsQuery({ user, message, history }) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
@@ -1862,19 +1862,20 @@ async function answerPaymentAndTermsQuery({ user, message, history }) {
 The user is currently at the payment / pledge lock-in step of onboarding. They are asking a question about the plans, terms, deposit, pricing, differences between plans, or where we left off.
 ${coachCtx}
 
-=== SHOWUP PRICING & TERMS MASTER REFERENCE ===
+=== SHOWUP PRICING & TERMS MASTER REFERENCE (this is the ONLY source of truth — never invent numbers, flows, or steps not listed here) ===
 1. 🎁 14-Day Free Trial: First 14 days have ZERO subscription charges. Users pay only a ₹300 refundable deposit to lock in.
 2. 💰 Refundable Deposit: ₹300 (${config.depositAmountInr} INR).
 3. ⚙️ Platform Fee: ₹30 (${config.platformFeeInr} INR) charged for platform administration and server infrastructure, leaving a base refund pool of ₹270 (${config.fullPayoutInr} INR).
 4. 🛡️ 2 Free Strikes Grace Rule: If the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty!).
 5. ⚠️ Slip Penalty: Beyond free strikes, each missed workout deducts ₹50 (${config.slipPenaltyInr} INR) from their ₹270 refund balance (floored at ₹0).
 6. 📋 Basic Plan vs Pro Plan (Starting Month 2):
-   - Basic Plan (₹129/month base):
+   - Basic Plan (₹${config.pricing.basic.monthly}/month base):
      * Includes daily reminders, check-in verification (photo proof), AI nutrition plan, doubt clearing / general Q&A.
-     * Consistency Discount: 0 misses during the pledge earns a ₹10 discount (₹119/month!).
-   - Pro Plan (₹239/month base):
+   - Pro Plan (₹${config.pricing.pro.monthly}/month base):
      * Includes EVERYTHING in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics.
-     * Consistency Discount: 0 misses during the pledge earns a ₹10 discount (₹229/month!).
+   - Consistency Discount (both plans): ₹${config.weeklyDiscountInr} off for every CLEAN week (zero missed check-ins that week) during the pledge, capped at ₹${config.maxDiscountInr}/month — NOT a flat one-time amount. Full consistency: Basic drops to ₹${config.pricing.basic.minAfterDiscount}/month, Pro drops to ₹${config.pricing.pro.minAfterDiscount}/month.
+7. 🎟️ Promo Code: typed directly in this chat (never on any external page or form — there is no "payment page" to apply it on). A valid code instantly unlocks 14 days of full Pro access completely free — no deposit, no payment of any kind. Their refundable-deposit record is set to ₹50 (waived, never actually charged) purely for internal tracking. One-time use per account. If a user mentions a code and you don't know whether it's valid, say you can't confirm it here and that they should just try sending it directly — never guess, confirm, or reject a specific code yourself.
+8. ✅ Payment confirmation is fully automatic: the moment a real deposit payment is completed via the link, it is verified and the account activates on its own — there is nothing to type or confirm manually. NEVER tell the user to reply "paid" or type any word to confirm payment; that mechanism no longer exists.
 
 === USER CONTEXT ===
 Name: ${user.name || 'Friend'}
@@ -1894,10 +1895,11 @@ INSTRUCTIONS:
    - STRICT TONAL RULE: ALWAYS treat the user with utmost respect ("neenga", "unga", "ungalukku", "sollunga", "pannunga"). NEVER use "Dei", "Dey", "Da", "Di", "nee", "unakku", "unoda", or "podu".
    - If they ask in Tanglish ('tl'), respond in casual, respectful Tanglish using English/Latin alphabet.
    - If they ask in Hinglish ('hl'), respond in casual, respectful Hinglish using English/Latin alphabet.
-   - If they ask about the difference between Basic (₹129) and Pro (₹239) plans, clearly explain that Basic is ₹129 (reminders, verification, AI nutrition plan, doubt clearing), while Pro is ₹239 (adds diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and progress analytics). Mention both get a ₹10/mo consistency discount for zero misses (Basic becomes ₹119, Pro becomes ₹229).
+   - If they ask about the difference between Basic (₹${config.pricing.basic.monthly}) and Pro (₹${config.pricing.pro.monthly}) plans, clearly explain that Basic (reminders, verification, AI nutrition plan, doubt clearing) is cheaper than Pro (adds diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and progress analytics). Mention the ₹${config.weeklyDiscountInr}-per-clean-week consistency discount (capped at ₹${config.maxDiscountInr}/month), never a flat one-time amount.
    - If they ask about terms/deposit/strikes, explain the ₹300 deposit, ₹30 fee (₹270 base refund), 2 free strikes for >10 days, and ₹50 penalty.
+   - If they ask about a promo code, use reference point 7 above exactly — never invent a redemption flow.
 2. Keep your answer friendly, respectful, and conversational (max 90 words).
-3. Always wrap up by reminding them that replying "paid" after paying the ₹300 deposit starts their 14-day free trial and 30-day pledge.`;
+3. Do NOT tell them to reply "paid" or type anything to confirm payment — say instead that their account activates automatically once payment is confirmed. If they haven't picked a tier yet, remind them to reply "1" for Basic or "2" for Pro to get their deposit link.`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.5 });
@@ -1905,6 +1907,36 @@ INSTRUCTIONS:
   } catch (err) {
     console.error('[Gemini] answerPaymentAndTermsQuery error:', err);
     return null;
+  }
+}
+
+/**
+ * Phrases a promo code OUTCOME the caller has already decided deterministically
+ * (see onboarding.js) — this function only writes the words, it never decides
+ * validity itself. Passing a hard, pre-decided fact instead of letting the
+ * model judge the code is a deliberate fix: earlier prompts that asked the
+ * model to reason about a code's validity were observed to hallucinate a fake
+ * activation for a made-up code, which is why redemption logic is never left
+ * to it.
+ */
+async function generatePromoCodeOutcomeMessage({ user, accepted, depositInr, trialDays }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const fact = accepted
+    ? `The promo code they just sent WAS ACCEPTED (this is a settled fact, already applied to their account — do not hedge or re-verify it). They now have: a free ₹${depositInr} recorded deposit (they pay nothing) and ${trialDays} days of full Pro access, completely free.`
+    : `The promo code they just sent is INVALID (this is a settled fact — do not guess otherwise or suggest it might work). Tell them plainly it's not valid and, if they have a real one, to send just the code on its own with nothing else added.`;
+
+  const prompt = `You are ShowUp, a warm, direct fitness coach texting ${user.name} on WhatsApp.
+${fact}
+Write a short reply (max 35 words) conveying exactly that fact — nothing more, nothing invented. Zero emojis. Reply in ${langName}.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6 });
+    return sanitizeScriptForLanguage(text.trim(), user.language);
+  } catch (err) {
+    console.error('[Gemini] generatePromoCodeOutcomeMessage error:', err);
+    return accepted
+      ? `You got a free ₹${depositInr} in your deposit and a ${trialDays}-day Pro account — no payment needed.`
+      : "That's not a valid promo code. If you have a real one, send it here on its own.";
   }
 }
 
@@ -2305,6 +2337,7 @@ module.exports = {
   extractPersonalizationSignals,
   generateFollowUpNudge,
   answerPaymentAndTermsQuery,
+  generatePromoCodeOutcomeMessage,
   parseFitnessAppScreenshot,
   generateCardioCoachFeedback,
   generateDay1Workout,

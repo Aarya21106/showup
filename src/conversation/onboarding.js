@@ -123,6 +123,16 @@ async function handleOnboarding(user, body, media) {
   // Stage 9: Awaiting Payment + Tier Selection
   if (user.state === states.AWAITING_PAYMENT) {
     const lower = text.toLowerCase().trim();
+    // One-shot flag: true only if the LAST thing we sent was a promo-code
+    // rejection, so a silent follow-up like "it's X" (no "code" keyword,
+    // relying purely on conversational context) still gets caught. Reading
+    // AI-phrased reply text for a literal keyword isn't reliable — the model
+    // paraphrases and can drop it — so this is tracked as real state instead.
+    const wasAwaitingPromoRetry = user.awaiting_promo_retry === 1;
+    // Clear eagerly — any branch below that isn't the rejection branch means
+    // the conversation moved on, so the one-shot flag shouldn't carry forward.
+    // The rejection branch re-arms it for exactly the next message if needed.
+    if (wasAwaitingPromoRetry) db.updateUser(user.id, { awaiting_promo_retry: 0 });
 
     // --- Tier selection: user picks Basic or Pro ---
     // Bug fix: this used to guard on `!user.tier`, but the `tier` column's DB
@@ -166,12 +176,33 @@ async function handleOnboarding(user, body, media) {
       });
       const timeStr = updated.checkin_time || '08:00';
       const actStr = updated.activity || 'workout';
-      // Bug fix: this used to follow up with the generic paidConfirmed
-      // message ("Yes, your payment has been confirmed!") — wrong for a
-      // promo grant, since no payment ever happens here.
-      await messaging.sendText(phone, `You got a free ₹${PROMO_DEPOSIT_INR} in your deposit and a 14-day Pro account — no payment needed.\n\nI will message you daily before ${timeStr} for your ${actStr} check-in.`);
+      // The redemption itself (above) is already decided and applied — the AI
+      // only phrases the confirmation, it never decides whether the code was
+      // valid (see generatePromoCodeOutcomeMessage's doc comment for why).
+      const acceptedMsg = await gemini.generatePromoCodeOutcomeMessage({
+        user: updated, accepted: true, depositInr: PROMO_DEPOSIT_INR, trialDays: PROMO_TRIAL_DAYS,
+      });
+      await messaging.sendText(phone, `${acceptedMsg}\n\nI will message you daily before ${timeStr} for your ${actStr} check-in.`);
       await messaging.sendText(phone, promptNutritionChoice(user));
       return;
+    }
+
+    // --- Invalid promo code attempt ---
+    // Bug fix: a message that TALKS ABOUT a promo code without being the
+    // exact code itself (e.g. "my code is X", or a follow-up correction to
+    // an earlier wrong guess) used to fall through to the AI Q&A function,
+    // which was observed to hallucinate that a made-up code was valid and
+    // claim the account had been activated — nothing in the database backs
+    // that up. Anything promo-code-shaped is handled deterministically here,
+    // never left to the model to confirm or reject on its own.
+    {
+      const isPromoContext = /promo\s*code|coupon/i.test(lower) || wasAwaitingPromoRetry;
+      if (isPromoContext) {
+        db.updateUser(user.id, { awaiting_promo_retry: 1 });
+        const rejectedMsg = await gemini.generatePromoCodeOutcomeMessage({ user, accepted: false });
+        await messaging.sendText(phone, rejectedMsg);
+        return;
+      }
     }
 
     // --- Payment confirmation ---
@@ -765,7 +796,7 @@ async function handleTimetableSetup(user, body) {
     if (result.confirmed) {
       fieldsToUpdate.state = states.ACTIVE;
       db.updateUser(user.id, fieldsToUpdate);
-      await messaging.sendText(phone, result.reply || messages.t(user.language, 'paidConfirmed', user.checkin_time, user.activity));
+      await messaging.sendText(phone, result.reply || `Your schedule is set. I will message you daily before ${user.checkin_time || '08:00'} for your ${user.activity || 'workout'} check-in.`);
     } else {
       db.updateUser(user.id, fieldsToUpdate);
       await messaging.sendText(phone, result.reply);
