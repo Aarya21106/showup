@@ -38,6 +38,36 @@ async function createDepositPaymentLink({ user, tier }) {
   }
 }
 
+/**
+ * Creates a per-user Razorpay Payment Link for a monthly subscription renewal
+ * (sent when a user's 30-day pledge completes) — same pattern as the deposit
+ * link, but tagged type: 'subscription' so the webhook knows to renew the
+ * pledge cycle instead of running the deposit-confirmation flow.
+ */
+async function createSubscriptionPaymentLink({ user, tier }) {
+  const razorpay = getClient();
+  if (!razorpay) return null;
+
+  const amountInr = tier === 'pro' ? config.pricing.pro.monthly : config.pricing.basic.monthly;
+
+  try {
+    const link = await razorpay.paymentLink.create({
+      amount: amountInr * 100,
+      currency: 'INR',
+      description: `ShowUp ${tier === 'pro' ? 'Pro' : 'Basic'} monthly renewal`,
+      reference_id: `user_${user.id}_renewal_${Date.now()}`,
+      notes: { user_id: String(user.id), tier, type: 'subscription' },
+      customer: { name: user.name || 'ShowUp Member' },
+      notify: { sms: false, email: false },
+      reminder_enable: false,
+    });
+    return link.short_url;
+  } catch (err) {
+    console.error('[Razorpay] Failed to create subscription payment link:', err.message);
+    return null;
+  }
+}
+
 /** Verifies the X-Razorpay-Signature header against the raw webhook body. */
 function verifyWebhookSignature(rawBody, signature) {
   if (!config.razorpay.webhookSecret || !signature) return false;
@@ -49,4 +79,4 @@ function verifyWebhookSignature(rawBody, signature) {
   }
 }
 
-module.exports = { createDepositPaymentLink, verifyWebhookSignature };
+module.exports = { createDepositPaymentLink, createSubscriptionPaymentLink, verifyWebhookSignature };

@@ -276,7 +276,26 @@ async function handleIncomingMessage({ phone, body, media }) {
   }
 
   if (user.state === states.COMPLETED) {
-    await messaging.sendText(phone, messages.t(user.language, 'waitForPrompt'));
+    const lower = text.toLowerCase().trim();
+    const wantsBasic = lower === '1' || /\bbasic\b/i.test(lower);
+    const wantsPro = lower === '2' || /\bpro\b/i.test(lower);
+    const wantsRenew = /\brenew/i.test(lower) || wantsBasic || wantsPro;
+
+    if (wantsRenew) {
+      const tier = wantsBasic ? 'basic' : (wantsPro ? 'pro' : (user.tier === 'basic' ? 'basic' : 'pro'));
+      if (wantsBasic || wantsPro) db.updateUser(user.id, { tier });
+      const razorpay = require('../services/razorpay');
+      const link = await razorpay.createSubscriptionPaymentLink({ user: { ...user, tier }, tier });
+      if (link) {
+        await messaging.sendText(phone, `Renewal link for ${tier === 'pro' ? 'Pro' : 'Basic'}:\n${link}\n\nYour membership activates automatically once payment lands.`);
+      } else {
+        await messaging.sendText(phone, "Sorry, I couldn't generate a renewal link right now — please try again shortly.");
+      }
+      return;
+    }
+
+    await messaging.sendText(phone, messages.t(user.language, 'waitForPrompt') +
+      '\n\nWant to keep going? Reply "renew" for another 30 days.');
     return;
   }
 

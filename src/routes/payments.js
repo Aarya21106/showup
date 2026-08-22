@@ -32,13 +32,15 @@ router.post('/webhook', async (req, res) => {
 
   try {
     const event = req.body.event;
-    const entity =
-      req.body.payload?.payment_link?.entity ||
-      req.body.payload?.payment?.entity;
+    if (event !== 'payment_link.paid' && event !== 'payment.captured') return;
 
-    if (!entity || (event !== 'payment_link.paid' && event !== 'payment.captured')) {
-      return;
-    }
+    // payment_link.paid carries both entities in the same payload — prefer the
+    // payment entity for the real Razorpay payment id + amount, fall back to
+    // the payment_link entity (plain payment.captured has no link at all).
+    const linkEntity = req.body.payload?.payment_link?.entity;
+    const paymentEntity = req.body.payload?.payment?.entity;
+    const entity = linkEntity || paymentEntity;
+    if (!entity) return;
 
     const notes = entity.notes || {};
     const userId = parseInt(notes.user_id, 10);
@@ -52,12 +54,50 @@ router.post('/webhook', async (req, res) => {
       console.error('[Payments] Webhook payment references unknown user:', userId);
       return;
     }
-    if (user.deposit_status === 'paid') {
-      return; // already confirmed — duplicate webhook delivery, nothing to do
+
+    const paymentType = notes.type === 'subscription' ? 'subscription' : 'deposit';
+    const amountPaise = paymentEntity?.amount ?? linkEntity?.amount_paid ?? linkEntity?.amount ?? 0;
+    const razorpayPaymentId = paymentEntity?.id || null;
+    const razorpayLinkId = linkEntity?.id || null;
+
+    // Idempotency: a duplicate webhook delivery (Razorpay retries on any
+    // non-2xx, and can also just double-send) must not double-charge state —
+    // this payment id/link id combination is only ever processed once.
+    if (razorpayPaymentId && db.getPaymentsForUser(userId).some((p) => p.razorpay_payment_id === razorpayPaymentId)) {
+      return;
     }
 
     const activeTier = notes.tier === 'basic' ? 'basic' : (notes.tier === 'pro' ? 'pro' : (user.tier === 'free' ? 'pro' : user.tier));
     const today = todayStr(config.timezone);
+
+    db.logPayment({
+      userId: user.id,
+      razorpayPaymentId,
+      razorpayLinkId,
+      type: paymentType,
+      tier: activeTier,
+      amountInr: Math.round(amountPaise / 100),
+      status: 'captured',
+    });
+
+    if (paymentType === 'subscription') {
+      // Renewal payment — the user already onboarded once, so skip straight
+      // back into active coaching for a fresh 30-day cycle instead of
+      // replaying nutrition setup.
+      const updated = db.updateUser(user.id, {
+        tier: activeTier,
+        started_at: today,
+        day_count: 0,
+        missed_count: 0,
+        streak: 0,
+        state: states.ACTIVE,
+      });
+      await messaging.sendText(updated.phone, `Renewal confirmed — your ${activeTier === 'pro' ? 'Pro' : 'Basic'} membership is active for another 30 days. Day 1 starts now, let's go!`);
+      return;
+    }
+
+    if (user.deposit_status === 'paid') return; // deposit already confirmed — nothing to do
+
     const updated = db.updateUser(user.id, {
       accountability_mode: 'accountability',
       deposit_status: 'paid',

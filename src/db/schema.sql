@@ -193,4 +193,18 @@ CREATE TABLE IF NOT EXISTS device_tokens (
 
 CREATE INDEX IF NOT EXISTS idx_device_tokens_user ON device_tokens(user_id);
 
+CREATE TABLE IF NOT EXISTS payments (
+  id                    INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id               INTEGER NOT NULL REFERENCES users(id),
+  razorpay_payment_id   TEXT,
+  razorpay_link_id      TEXT,
+  type                  TEXT NOT NULL,            -- deposit | subscription
+  tier                  TEXT,                     -- basic | pro
+  amount_inr            INTEGER NOT NULL,
+  status                TEXT NOT NULL DEFAULT 'captured',
+  created_at            TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_payments_user ON payments(user_id, created_at);
+
 

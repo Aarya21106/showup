@@ -200,7 +200,7 @@ async function ensureTursoSchema() {
 const TURSO_TABLES = [
   'users', 'checkins', 'nutrition_logs', 'burned_calories_logs', 'chat_messages',
   'daily_summaries', 'outbox_messages', 'workout_logs', 'weight_logs',
-  'workout_schedule_overrides', 'weekly_reviews', 'device_tokens',
+  'workout_schedule_overrides', 'weekly_reviews', 'device_tokens', 'payments',
 ];
 
 /** Pulls all data from Turso into the local file — only when local is empty (fresh container). */
@@ -414,6 +414,27 @@ function hasDuplicatePhotoHash(userId, hash) {
     "SELECT 1 FROM checkins WHERE user_id = ? AND photo_hash = ? AND status = 'accepted' LIMIT 1"
   ).get(userId, hash);
   return !!row;
+}
+
+function logPayment({ userId, razorpayPaymentId, razorpayLinkId, type, tier, amountInr, status }) {
+  const info = runWrite(
+    `INSERT INTO payments (user_id, razorpay_payment_id, razorpay_link_id, type, tier, amount_inr, status)
+     VALUES (@userId, @razorpayPaymentId, @razorpayLinkId, @type, @tier, @amountInr, @status)`,
+    {
+      userId,
+      razorpayPaymentId: razorpayPaymentId || null,
+      razorpayLinkId: razorpayLinkId || null,
+      type,
+      tier: tier || null,
+      amountInr,
+      status: status || 'captured',
+    }
+  );
+  return info.lastInsertRowid;
+}
+
+function getPaymentsForUser(userId) {
+  return db.prepare('SELECT * FROM payments WHERE user_id = ? ORDER BY created_at DESC').all(userId);
 }
 
 function logNutrition({ userId, date, foodItem, weightG, calories, protein, carbs, fat }) {
@@ -732,7 +753,7 @@ function deleteUserCompletely(userId) {
     const tables = [
       'checkins', 'nutrition_logs', 'burned_calories_logs', 'chat_messages',
       'outbox_messages', 'workout_logs', 'weight_logs', 'workout_schedule_overrides',
-      'weekly_reviews', 'device_tokens', 'daily_summaries',
+      'weekly_reviews', 'device_tokens', 'daily_summaries', 'payments',
     ];
     for (const table of tables) {
       runWrite(`DELETE FROM ${table} WHERE user_id = ?`, [userId]);
@@ -763,6 +784,8 @@ module.exports = {
   getLastAcceptedCheckin,
   logNutrition,
   getNutritionLogsToday,
+  logPayment,
+  getPaymentsForUser,
   logBurnedCalories,
   getBurnedCaloriesLogsToday,
   saveChatMessage,

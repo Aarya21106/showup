@@ -62,6 +62,9 @@ async function finalizeAccepted(user, checkinId, reason) {
       ? messages.t(user.language, 'finalComplete', payout)
       : messages.t(user.language, 'finalPartial', completedDays, payout);
     await messaging.sendText(user.phone, msg);
+    await messaging.sendText(user.phone,
+      `Ready for another round? Renew your ${user.tier === 'pro' ? 'Pro' : 'Basic'} membership for another 30 days.\n\n` +
+      `Reply "renew" to get your payment link, or "1" for Basic / "2" for Pro to switch tiers first.`);
     return;
   }
 
