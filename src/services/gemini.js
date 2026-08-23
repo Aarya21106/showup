@@ -1863,7 +1863,7 @@ The user is currently at the payment / pledge lock-in step of onboarding. They a
 ${coachCtx}
 
 === SHOWUP PRICING & TERMS MASTER REFERENCE (this is the ONLY source of truth — never invent numbers, flows, or steps not listed here) ===
-1. 🎁 14-Day Free Trial: First 14 days have ZERO subscription charges. Users pay only a ₹300 refundable deposit to lock in.
+1. 🎁 14-Day Free Trial: once the ₹300 refundable deposit is paid, the first 14 days have ZERO subscription charges. This user has NOT paid yet unless told otherwise below — never phrase this as already active or in progress for them.
 2. 💰 Refundable Deposit: ₹300 (${config.depositAmountInr} INR).
 3. ⚙️ Platform Fee: ₹30 (${config.platformFeeInr} INR) charged for platform administration and server infrastructure, leaving a base refund pool of ₹270 (${config.fullPayoutInr} INR).
 4. 🛡️ 2 Free Strikes Grace Rule: If the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty!).

@@ -254,11 +254,17 @@ async function handleOnboarding(user, body, media) {
       }
     } else {
       const aiReply = await gemini.answerPaymentAndTermsQuery({ user, message: text, history: [] });
-      if (aiReply) {
-        await messaging.sendText(phone, aiReply);
-      } else {
-        await messaging.sendText(phone, messages.t(user.language, 'notPaidYet'));
-      }
+      // Bug fix: the AI's answer used to be sent as-is — it sometimes described
+      // trial/deposit terms in a way that read like payment was already done
+      // ("your first 14 days are free...") even though nothing was paid. The
+      // real status is never left to the AI's phrasing: it's checked here in
+      // code and a plain, factual status line is always appended, regardless
+      // of what the AI said.
+      const statusLine = user.deposit_status === 'paid'
+        ? null // shouldn't normally reach here once paid, but never claim unpaid if it happens
+        : "\n\n(Status: no payment received yet on this account.)";
+      const reply = (aiReply || messages.t(user.language, 'notPaidYet')) + (statusLine || '');
+      await messaging.sendText(phone, reply);
     }
     return;
   }
