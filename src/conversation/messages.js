@@ -138,24 +138,11 @@ const T = {
   en: {
     accountabilityIntro: ({ name }) =>
       `One last thing before Day 1 — your ShowUp membership.\n\n` +
-      `Every member puts down a ₹${config.depositAmountInr} refundable deposit. It's not a fee — it's your own money, held as a commitment stake.\n` +
-      `Complete your pledge honestly and it comes back to you. Miss sessions beyond the free buffer and a small portion is forfeited. The goal is to make skipping harder than showing up.\n\n` +
-      `Your deposit rules:\n` +
-      `• Deposit: ₹${config.depositAmountInr} (refundable)\n` +
-      `• Commitment period: 30 days\n` +
-      `• Free misses: 2 buffer days (zero penalty)\n` +
-      `• Miss after free misses: ₹${config.slipPenaltyInr} per day forfeited\n` +
-      `• Platform fee: ₹${config.platformFeeInr} (deducted at completion)\n` +
-      `• Refund balance: ₹${config.fullPayoutInr} returned on completion\n\n` +
-      `Now choose your tier:\n\n` +
-      `1. Basic — ₹${config.pricing.basic.monthly}/month\n` +
-      `   Daily reminders, check-in verification, AI nutrition plan, doubt clearing\n\n` +
-      `2. Pro — ₹${config.pricing.pro.monthly}/month\n` +
-      `   Everything in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics\n\n` +
-      `Both tiers include the ₹${config.depositAmountInr} refundable deposit.\n` +
-      `Consistent members get ₹${config.weeklyDiscountInr} off per clean week — up to ₹${config.maxDiscountInr}/month if you're fully consistent.\n\n` +
-      `Reply "1" for Basic or "2" for Pro.\n` +
-      `Have a promo code? Just send it here for free trial access.`,
+      `₹${config.depositAmountInr} refundable deposit (30-day commitment). 2 free misses, then ₹${config.slipPenaltyInr}/day forfeited. ₹${config.platformFeeInr} platform fee — ₹${config.fullPayoutInr} back if you finish clean.\n\n` +
+      `1. Basic — ₹${config.pricing.basic.monthly}/month: reminders, check-ins, AI nutrition plan\n` +
+      `2. Pro — ₹${config.pricing.pro.monthly}/month: + diet logging, calorie tracking, burn logs, exercise deep-dives, progress analytics\n\n` +
+      `Both include the deposit. Consistent members save ₹${config.weeklyDiscountInr}/clean week, up to ₹${config.maxDiscountInr}/month.\n\n` +
+      `Reply "1" or "2" — or send a promo code for free trial access.`,
     depositAsk: ({ name, amt, tier }) =>
       `${tier === 'pro' ? 'Pro' : 'Basic'} tier selected.\n\n` +
       `Pay your ₹${config.depositAmountInr} refundable deposit to activate Day 1, or send a promo code if you have one:\n`,

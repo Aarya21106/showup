@@ -40,7 +40,6 @@ const config = {
   trialDays: 14,
   depositAmountInr: parseInt(process.env.DEPOSIT_AMOUNT_INR || '300', 10),
   platformFeeInr: parseInt(process.env.PLATFORM_FEE_INR || '30', 10),
-  fullPayoutInr: parseInt(process.env.FULL_PAYOUT_INR || '270', 10), // 300 - 30 platform fee
   slipPenaltyInr: parseInt(process.env.SLIP_PENALTY_INR || '50', 10),
   freeStrikesThresholdDays: 10, // if workout days > 10 per month
   freeStrikesCount: 2, // 2 strikes without penalty
@@ -51,6 +50,11 @@ const config = {
     pro:   { monthly: 239, minAfterDiscount: 199 }, // 239 - maxDiscountInr
   },
 };
+
+// Always derived from the deposit and fee above — never its own env var, so it
+// can't silently drift out of sync with them (a stale FULL_PAYOUT_INR=500 once
+// sat in .env, quoting a "refund" bigger than the deposit itself).
+config.fullPayoutInr = config.depositAmountInr - config.platformFeeInr;
 
 const isPlaceholder = (val) => {
   if (!val) return true;
