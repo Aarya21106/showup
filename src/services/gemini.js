@@ -1941,6 +1941,56 @@ Write a short reply (max 35 words) conveying exactly that fact — nothing more,
 }
 
 /**
+ * Responds to a doubt/fear/hesitation statement during onboarding — "I don't
+ * want to lose my money", "what if I fail" — instead of the flow silently
+ * ignoring it and barreling ahead to the next scripted step (the exact bug
+ * this fixes: a user raised money-loss anxiety and the bot just handed them a
+ * nutrition plan next, never acknowledging what they'd said).
+ *
+ * Grounded in real coaching technique, not improvised: motivational
+ * interviewing (reflective listening — name the feeling before responding to
+ * it, autonomy-supportive framing — reconnect them to THEIR OWN stated reason
+ * for being here rather than arguing at them) and fear-reframing practice
+ * (address the concrete, factual root of the fear directly — this app
+ * already collects vision_text/blocker_text at onboarding specifically so a
+ * moment like this can reflect the user's own words back to them, which is
+ * consistently the actual effective move, not generic reassurance).
+ * Sources consulted: Positive Psychology's motivational interviewing
+ * principles (open questions, reflective listening, affirmations), and
+ * coaching-fear-reframing guidance (validate → reconnect to the original
+ * goal → address the concrete fear with facts).
+ */
+async function generateObjectionResponse({ user, concernText }) {
+  const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const coachCtx = buildCoachContext(user);
+
+  const prompt = `You are ShowUp, a warm, direct AI fitness coach on WhatsApp. The user just said something that sounds like doubt, fear, or hesitation — NOT a request to move forward. Address it before anything else.
+${coachCtx}
+
+What they just said: "${concernText}"
+
+Their own stated reason for starting this (collected earlier — use it, don't ignore it):
+- Vision/goal in their words: "${user.vision_text || 'not stated'}"
+- What's held them back before: "${user.blocker_text || 'not stated'}"
+
+Respond using this exact structure (do not label the steps, just write it naturally as 2-4 short sentences, max 70 words):
+1. Reflect their concern back in one short line so they feel heard — don't dismiss or minimize it.
+2. Reconnect them to their OWN stated vision/reason above (quote or paraphrase it) — not a generic "you can do it," their actual words.
+3. Address the SPECIFIC factual root of the fear if it's about money/failing: the deposit is refundable, there are 2 free buffer days with zero penalty before any money is ever forfeited, and missing a day doesn't end the pledge — only sustained no-shows cost anything. Use only these real facts, never invent new ones.
+4. End by gently inviting them to continue (do not repeat their exact previous question here — that gets asked again right after this message).
+
+Rules: zero emojis, warm but not saccharine, no corporate reassurance clichés ("we're here for you every step"). Reply in ${langName}.`;
+
+  try {
+    const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.6, maxTokens: 300 });
+    return sanitizeScriptForLanguage(text.trim(), user.language);
+  } catch (err) {
+    console.error('[Gemini] generateObjectionResponse error:', err);
+    return "That's a fair worry to have. The deposit is fully refundable, and you get 2 free buffer days before anything is ever forfeited — one missed day doesn't cost you anything.";
+  }
+}
+
+/**
  * Parses a fitness app screenshot (Strava, Apple Health, Samsung Health, Garmin, etc.)
  * and extracts the activity data for running, walking, or cycling verification.
  */
@@ -2216,18 +2266,34 @@ async function generateRealisticExpectationsMessage(user) {
         : `Their prescribed plan: ${kbEntry.split}.`)
     : '';
 
+  // Bug fix: this used to give the model NO body-composition data at all, so
+  // every user got the same generic "6-8 weeks / 4-6 months" range regardless
+  // of their actual starting point. BMI is computed here (deterministic, not
+  // left to the model) and handed over as a real number to reason from.
+  let bmiNote = 'Height/weight not provided — do not invent a specific BMI-based estimate, just use frequency and experience level.';
+  if (user.height && user.weight) {
+    const heightM = user.height / 100;
+    const bmi = user.weight / (heightM * heightM);
+    let category = 'normal weight';
+    if (bmi < 18.5) category = 'underweight';
+    else if (bmi >= 25 && bmi < 30) category = 'overweight';
+    else if (bmi >= 30) category = 'obese';
+    bmiNote = `BMI: ${bmi.toFixed(1)} (${category}) — height ${user.height}cm, weight ${user.weight}kg. Use this to actually calibrate the timeline: e.g. a higher starting BMI on a fat-loss/recomp goal realistically needs longer before visible definition shows; a lower/underweight BMI on a bulk goal can show visible change sooner since there's less fat to lose first. Reason from this number, don't ignore it.`;
+  }
+
   const prompt = `You are ShowUp, an honest, direct AI fitness coach. The user has just finished onboarding — their plan, split, and nutrition are all set up. Before they start, give them ONE honest, grounded reality check about what their specific setup can and can't do.
 ${coachCtx}
 
 User's setup:
 - Activity: ${user.activity || 'gym'} | Goal: ${user.goal || 'general fitness'} | Experience: ${user.experience_level || 'beginner'}
 - Training frequency: ${user.days_per_week || 3} days/week
+- ${bmiNote}
 - Their own stated target timeframe: ${user.goal_timeframe || 'not specified'}
 ${kbNote}
 
 Task: Write ONE short, honest message covering, in this order:
 1. A direct, non-discouraging statement that ${user.days_per_week || 3} days/week means realistic progress takes patience and consistency — it will not be as fast as training more often, and skipping sessions will push the timeline out further. Do not be harsh or demotivating — be honest like a coach who respects them enough to not sugarcoat it.
-2. What IS realistically achievable with their frequency if they stay consistent, in relation to the timeframe they stated (${user.goal_timeframe || 'their target'}) — be specific to their goal (e.g. what visible/measurable progress looks like at that point), not vague encouragement.
+2. A SPECIFIC timeline estimate calculated from their actual BMI, goal, frequency, and experience level above (not a generic stock range) — what's realistically achievable and by roughly when, in relation to the timeframe they stated (${user.goal_timeframe || 'their target'}).
 3. One sentence reinforcing that consistency at their chosen frequency beats sporadic higher frequency — showing up for every one of their ${user.days_per_week || 3} sessions matters more than the number itself.
 
 Rules:
@@ -2338,6 +2404,7 @@ module.exports = {
   generateFollowUpNudge,
   answerPaymentAndTermsQuery,
   generatePromoCodeOutcomeMessage,
+  generateObjectionResponse,
   parseFitnessAppScreenshot,
   generateCardioCoachFeedback,
   generateDay1Workout,

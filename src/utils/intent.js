@@ -71,4 +71,35 @@ function isOffTopicQuestion(text) {
   return { isQuestion: true, isGymQ, isPaymentQ };
 }
 
-module.exports = { isOffTopicQuestion };
+/**
+ * Detects doubt/fear/hesitation STATEMENTS during onboarding — "I don't want
+ * to lose my money", "what if I fail", "I'm scared I can't do this". These
+ * aren't questions (isOffTopicQuestion won't catch them — no "?", no question
+ * word), and used to just fall through to whatever the current state's
+ * generic fallback was, which mostly just re-asked or silently continued the
+ * scripted flow without acknowledging what the user actually said.
+ *
+ * @param {string} text - The incoming user message (already trimmed).
+ * @returns {boolean}
+ */
+function containsConcernOrObjection(text) {
+  if (!text || text.trim().length === 0) return false;
+  const trimmed = text.trim();
+
+  return new RegExp([
+    // Loss / money fear
+    "don'?t want to (lose|waste)|dont wanna (lose|waste)|loose my money|lose my money|waste (of )?money|waste my money",
+    'get.*refund|money back|not worth it',
+    // Fear of failing / not following through
+    "what if i (fail|don'?t|dont|cant|can'?t|miss|mess up)",
+    "i'?m (scared|afraid|worried|nervous|anxious)|im (scared|afraid|worried|nervous|anxious)",
+    "not sure i can|not sure if i can|don'?t think i can|dont think i can|i cant do this|i can'?t do this",
+    'too (hard|difficult|much|expensive)|too busy|no time',
+    "what if it doesn'?t work|what if this doesn'?t work",
+    // Tanglish / Hinglish equivalents
+    'panna mudiyuma|mudiyadhu|bayama irukku|panna mudiyala',
+    'dar lag raha|nahi ho payega|mushkil hai|paisa waste',
+  ].join('|'), 'i').test(trimmed);
+}
+
+module.exports = { isOffTopicQuestion, containsConcernOrObjection };

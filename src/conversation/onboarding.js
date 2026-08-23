@@ -8,7 +8,7 @@ const messaging = require('../services/messaging');
 const config = require('../config');
 const razorpay = require('../services/razorpay');
 const { todayStr, addDaysStr } = require('../utils/date');
-const { isOffTopicQuestion } = require('../utils/intent');
+const { isOffTopicQuestion, containsConcernOrObjection } = require('../utils/intent');
 
 async function resolveImage(media) {
   if (!media) return null;
@@ -112,9 +112,52 @@ async function deliverDay1AndAskReminderConsent(updatedUser) {
   await messaging.sendText(phone, messages.mealReminderConsentQuestion(updatedUser.language));
 }
 
+// States in the "commitment funnel" where a doubt/fear statement is likely
+// and worth a real response — the mechanical early Qs (name, language,
+// activity...) are excluded since a short reply there is far more likely to
+// just be a literal answer than an objection.
+const OBJECTION_AWARE_STATES = new Set([
+  states.AWAITING_COMMITMENT,
+  states.AWAITING_PAYMENT,
+  states.AWAITING_NUTRITION_CHOICE,
+  states.AWAITING_NUTRITION_PLAN_CONFIRMATION,
+  states.AWAITING_MEAL_REMINDER_CONSENT,
+  states.AWAITING_SELF_TRACKING_CONSENT,
+]);
+
+/** Re-sends whatever question the user was already being asked, for after an objection is addressed. */
+function resendPendingPrompt(user) {
+  switch (user.state) {
+    case states.AWAITING_COMMITMENT:
+      return messages.t(user.language, 'commitment_ask');
+    case states.AWAITING_NUTRITION_CHOICE:
+      return promptNutritionChoice(user);
+    case states.AWAITING_NUTRITION_PLAN_CONFIRMATION:
+      return messages.nutritionPlanConfirmPrompt(user.language);
+    case states.AWAITING_MEAL_REMINDER_CONSENT:
+      return messages.mealReminderConsentQuestion(user.language);
+    case states.AWAITING_SELF_TRACKING_CONSENT:
+      return messages.selfTrackingConsentQuestion(user.language);
+    default:
+      return null; // AWAITING_PAYMENT: tier options were already a full wall of text — the AI's own closing line covers the invite to continue
+  }
+}
+
 async function handleOnboarding(user, body, media) {
   const phone = user.phone;
   const text = (body || '').trim();
+
+  // Bug fix: a doubt/fear statement ("I don't want to lose my money", "what
+  // if I fail") used to fall through every state's fallback untouched and the
+  // flow just continued to the next scripted step, ignoring what the user
+  // actually said. Address it first, then re-ask whatever was pending.
+  if (OBJECTION_AWARE_STATES.has(user.state) && containsConcernOrObjection(text)) {
+    const response = await gemini.generateObjectionResponse({ user, concernText: text });
+    await messaging.sendText(phone, response);
+    const pending = resendPendingPrompt(user);
+    if (pending) await messaging.sendText(phone, pending);
+    return;
+  }
 
   // Stage 7 & 8 removed: No more mode selection. Flow goes directly from
   // AWAITING_COMMITMENT → AWAITING_PAYMENT with tier selection (Basic / Pro).
