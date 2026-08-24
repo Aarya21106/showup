@@ -33,8 +33,13 @@ function normalizeLevel(rawLevel) {
 
 function normalizeGoal(rawGoal) {
   const g = String(rawGoal || '').toLowerCase();
+  // Bug fix: same issue as knowledge/splitTemplates.js's normalizeGoal — this
+  // used to check weight_loss keywords first, so "lean bulking"/"lean muscle"
+  // matched on "lean" and got misclassified as weight_loss, handing out a
+  // circuit-style 12-15 rep scheme instead of a proper 8-12 rep hypertrophy
+  // scheme. Muscle-gain keywords now win when both are present.
+  if (/(muscle|bulk|mass|hypertroph|strength|stronger|bigger|size|gain)/.test(g)) return 'muscle_gain';
   if (/(lose|fat.?loss|cut|shred|lean|weight.?loss|slim)/.test(g)) return 'weight_loss';
-  if (/(muscle|bulk|mass|hypertroph|strength|bigger|size|gain)/.test(g)) return 'muscle_gain';
   return 'general';
 }
 

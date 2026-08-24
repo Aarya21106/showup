@@ -199,8 +199,22 @@ function sanitizeScriptForLanguage(text, language) {
  * recent daily summaries, and any due follow-ups.
  * Injected into the system prompt of every conversational Gemini call.
  */
+// Global voice directive — prepended to nearly every AI-generated message in
+// this app via buildCoachContext (37 call sites). One high-leverage edit
+// instead of rewriting each prompt's tone rules individually. Grounded in the
+// same research as services/motivationEngine.js (loss aversion, identity
+// framing, autonomy-supportive reconnection to the user's own stated goals —
+// see that file's header for sources) plus a hard readability constraint,
+// since a distracted person reading on WhatsApp skims, they don't study.
+const GLOBAL_VOICE_DIRECTIVE = `
+== HOW YOU TALK (applies to every reply) ==
+Short words over long ones. Short sentences. Say what the user actually needs to know or do — cut anything that doesn't serve that. No corporate-speak, no filler, no "as an AI." If a plainer word says it, use that one.
+When relevant, use real psychology, not generic hype: reconnect people to THEIR OWN stated goal/reason rather than arguing at them with external reasons; frame commitment/loss in terms of what they already have on the line, not abstract future gains; treat a "Day 1" or fresh-start moment as real motivational leverage. Never fabricate a specific statistic, testimonial, or number to sound persuasive — only ever use real facts already given to you.
+Zero emojis unless the user uses them first.
+`;
+
 function buildCoachContext(user) {
-  let ctx = '';
+  let ctx = GLOBAL_VOICE_DIRECTIVE;
   if (user) {
     const db = require('../db/db');
     const fitness = require('../utils/fitness');
@@ -545,6 +559,21 @@ async function conductOnboardingInterview({ currentProfile, message, history, us
     ? formatSplitTemplateForPrompt(currentProfile.activity, currentProfile.goal, currentProfile.days_per_week)
     : '';
 
+  // Step 6.5's timeline estimate used to ask the model to "reason about" a
+  // BMI adjustment on top of a generic range — for a normal-BMI user (no
+  // adjustment warranted) that read back as unchanged, un-personalized copy.
+  // Computed here in code instead (utils/fitness.js) once days_per_week is
+  // known, so Step 6.5 states a real number rather than judging one itself.
+  let timelineBlock = '';
+  if (currentProfile.days_per_week) {
+    const { calculateFitnessTimeline } = require('../utils/fitness');
+    const timeline = calculateFitnessTimeline({
+      goal: currentProfile.goal, daysPerWeek: currentProfile.days_per_week,
+      experienceLevel: currentProfile.experience_level, heightCm: currentProfile.height, weightKg: currentProfile.weight,
+    });
+    timelineBlock = `\nCOMPUTED TIMELINE FOR STEP 6.5 (state these exact numbers, do not recompute or invent different ones): visible initial change in ~${timeline.weeksVisible} weeks, meaningful progress in ~${timeline.monthsMeaningful} months.${timeline.bmi ? ` (BMI ${timeline.bmi}, ${timeline.bmiCategory}, already factored in.)` : ' (height/weight not yet known, so this uses frequency/experience only.)'}`;
+  }
+
   const prompt = `You are ShowUp, an elite, direct, empathetic, and highly competent AI fitness coach texting on WhatsApp.
 ${coachCtx}
 ${splitBlock ? '\n' + splitBlock + '\n' : ''}
@@ -647,14 +676,10 @@ ${splitBlock ? '\n' + splitBlock + '\n' : ''}
 
    • Step 6.5 (Goal timeframe missing — only ask once days_per_week is known):
      Acknowledge their training days, then in the SAME message:
-     (a) State a realistic, honest ballpark estimate for their goal given their ACTUAL setup (activity + days_per_week + experience_level + height/weight, which you already have by this step). Use this guidance to compute it, and ADJUST the range using their real BMI (weight_kg / (height_m)^2) rather than reciting the range as-is — a higher starting BMI on a fat-loss/recomp goal realistically needs longer before visible definition shows; a lower/underweight BMI on a muscle-gain goal can show visible change sooner since there is less fat to lose first:
-         - Muscle gain: at 1-2 days/week, expect visible initial changes in ~10-14 weeks and meaningful gains over ~6-9 months. At 3-4 days/week, visible changes in ~6-8 weeks, meaningful gains in ~4-6 months. At 5-6 days/week, visible changes in ~4-6 weeks, meaningful gains in ~3-5 months (experienced lifters gain slower than beginners despite more volume — mention this if experience_level is "experienced"). A lower/underweight BMI shortens the visible-change end of the range; skip this adjustment note if BMI is in the normal range.
-         - Fat loss: sustainable, healthy fat loss is roughly 0.5-1% of bodyweight per week; visible changes typically appear in ~4-8 weeks regardless of days/week (diet matters more than training frequency here), with meaningful transformation in ~3-6 months. A higher starting BMI lengthens the realistic timeline before visible definition shows — say so plainly if BMI is 27+.
-         - General fitness / strength / endurance: noticeable improvement in ~4-6 weeks, a settled habit and clear progress by ~8-12 weeks.
-         - Running/cycling/walking endurance goals: base fitness improves in ~4-6 weeks; a specific distance/pace target realistically takes ~8-16 weeks depending on the gap from their current level.
-         Always hedge honestly — say "roughly" / "typically" / "with consistency" and note that fewer training days means slower progress, not impossible progress.
+     (a) State the COMPUTED TIMELINE FOR STEP 6.5 numbers given below, plainly, in your own words — these are already calculated for their exact goal/frequency/experience/BMI, so do NOT recompute, second-guess, or substitute a different range. Just state them honestly with a hedge word ("roughly" / "typically" / "with consistency"), and note that fewer training days means slower progress, not impossible progress.
      (b) Then ask: "How many weeks or months would you like to set as your own target to work towards this?"
      Do NOT skip part (a) — the estimate must come BEFORE asking their target, on the same message.
+     ${timelineBlock || '(days_per_week not yet known, so no computed timeline is available — this step should not be reached without it.)'}
 
      VALIDATING THEIR ANSWER (critical — this is a real bug that happened before): when the user replies to the Step 6.5 question, do NOT accept whatever they say at face value. If their stated timeframe is implausibly short for the estimate you JUST gave — e.g. they say "2 days" or "1 week" when your own estimate was "6-8 weeks" — this is not a valid target: do NOT set goal_timeframe from it. Instead, leave goal_timeframe null, and your reply must point out the specific mismatch ("2 days won't be enough time to see real change — earlier I mentioned roughly 6-8 weeks for visible progress at your pace") and ask them to give a target in that realistic range. Only accept and set goal_timeframe once they give something plausible (their own estimate can still be more ambitious or more conservative than yours — that's fine, "plausible" just means it isn't off by an order of magnitude from the honest estimate you gave).
 
@@ -2268,20 +2293,20 @@ async function generateRealisticExpectationsMessage(user) {
         : `Their prescribed plan: ${kbEntry.split}.`)
     : '';
 
-  // Bug fix: this used to give the model NO body-composition data at all, so
-  // every user got the same generic "6-8 weeks / 4-6 months" range regardless
-  // of their actual starting point. BMI is computed here (deterministic, not
-  // left to the model) and handed over as a real number to reason from.
-  let bmiNote = 'Height/weight not provided — do not invent a specific BMI-based estimate, just use frequency and experience level.';
-  if (user.height && user.weight) {
-    const heightM = user.height / 100;
-    const bmi = user.weight / (heightM * heightM);
-    let category = 'normal weight';
-    if (bmi < 18.5) category = 'underweight';
-    else if (bmi >= 25 && bmi < 30) category = 'overweight';
-    else if (bmi >= 30) category = 'obese';
-    bmiNote = `BMI: ${bmi.toFixed(1)} (${category}) — height ${user.height}cm, weight ${user.weight}kg. Use this to actually calibrate the timeline: e.g. a higher starting BMI on a fat-loss/recomp goal realistically needs longer before visible definition shows; a lower/underweight BMI on a bulk goal can show visible change sooner since there's less fat to lose first. Reason from this number, don't ignore it.`;
-  }
+  // Bug fix (round 2): the first fix handed the model a BMI number and asked
+  // it to "reason about" the adjustment — for a normal-BMI user (no
+  // adjustment warranted) that produced output indistinguishable from before,
+  // which read as "you didn't actually change anything." The real number is
+  // now computed here in code (utils/fitness.js), not left to the model to
+  // judge — the AI states the given figures, it doesn't derive them.
+  const { calculateFitnessTimeline } = require('../utils/fitness');
+  const timeline = calculateFitnessTimeline({
+    goal: user.goal, daysPerWeek: user.days_per_week,
+    experienceLevel: user.experience_level, heightCm: user.height, weightKg: user.weight,
+  });
+  const bmiNote = timeline.bmi
+    ? `BMI: ${timeline.bmi} (${timeline.bmiCategory}). COMPUTED estimate for this exact user (state these numbers plainly, do not recompute or second-guess them): visible initial change in ~${timeline.weeksVisible} weeks, meaningful progress in ~${timeline.monthsMeaningful} months.`
+    : `Height/weight not provided. COMPUTED estimate using frequency/experience only: visible initial change in ~${timeline.weeksVisible} weeks, meaningful progress in ~${timeline.monthsMeaningful} months.`;
 
   const prompt = `You are ShowUp, an honest, direct AI fitness coach. The user has just finished onboarding — their plan, split, and nutrition are all set up. Before they start, give them ONE honest, grounded reality check about what their specific setup can and can't do.
 ${coachCtx}
@@ -2295,7 +2320,7 @@ ${kbNote}
 
 Task: Write ONE short, honest message covering, in this order:
 1. A direct, non-discouraging statement that ${user.days_per_week || 3} days/week means realistic progress takes patience and consistency — it will not be as fast as training more often, and skipping sessions will push the timeline out further. Do not be harsh or demotivating — be honest like a coach who respects them enough to not sugarcoat it.
-2. A SPECIFIC timeline estimate calculated from their actual BMI, goal, frequency, and experience level above (not a generic stock range) — what's realistically achievable and by roughly when, in relation to the timeframe they stated (${user.goal_timeframe || 'their target'}).
+2. State the COMPUTED timeline numbers given above (visible change / meaningful progress) plainly, in relation to the timeframe they stated (${user.goal_timeframe || 'their target'}) — these are already calculated for their exact BMI/goal/frequency, don't restate a generic range instead.
 3. One sentence reinforcing that consistency at their chosen frequency beats sporadic higher frequency — showing up for every one of their ${user.days_per_week || 3} sessions matters more than the number itself.
 
 Rules:

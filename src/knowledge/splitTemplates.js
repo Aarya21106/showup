@@ -7,8 +7,16 @@
 
 function normalizeGoal(rawGoal) {
   const g = String(rawGoal || '').toLowerCase();
+  // Bug fix: this used to check weight_loss keywords FIRST, so "lean
+  // bulking" and "lean muscle" — both real muscle-gain goals people actually
+  // type, and the exact phrase used throughout this app's own testing — were
+  // misclassified as weight_loss purely because they contain "lean," and got
+  // handed fat-burn circuits instead of a hypertrophy split. Muscle-gain
+  // keywords are checked first now, so "lean" only falls through to
+  // weight_loss when nothing more specific (bulk/muscle/mass/etc) is present
+  // — e.g. "get lean" or "lean out" still correctly means fat loss.
+  if (/(muscle|bulk|mass|hypertroph|strength|stronger|bigger|size|gain)/.test(g)) return 'muscle_gain';
   if (/(lose|fat.?loss|cut|shred|lean|weight.?loss|slim)/.test(g)) return 'weight_loss';
-  if (/(muscle|bulk|mass|hypertroph|strength|bigger|size|gain)/.test(g)) return 'muscle_gain';
   return 'general';
 }
 

@@ -57,8 +57,71 @@ function calculateMacros(targetCalories, weightKg) {
   return { proteinGrams: pGrams, carbsGrams: cGrams, fatGrams: fGrams };
 }
 
+/**
+ * Computes a real, per-user timeline estimate — deterministic, not left to
+ * the AI to "reason about." Two prompts in gemini.js used to ask the model
+ * to adjust a generic weeks/months range using the user's BMI itself; for a
+ * normal-BMI user (no adjustment warranted) that produced output
+ * indistinguishable from the un-personalized version, which read as "nothing
+ * actually changed." This always computes a real number from their actual
+ * inputs, so the AI has a concrete fact to state rather than a table to
+ * recite or a judgment call to make (the same fix pattern used for promo
+ * code validity and payment status elsewhere in this app — decide the fact
+ * in code, let the model only phrase it).
+ *
+ * @param {{goal: string, daysPerWeek: number, experienceLevel: string, heightCm: number, weightKg: number}} params
+ * @returns {{bmi: number|null, bmiCategory: string|null, weeksVisible: number, monthsMeaningful: number}}
+ */
+function calculateFitnessTimeline({ goal, daysPerWeek, experienceLevel, heightCm, weightKg }) {
+  const bmiResult = calculateBMI(heightCm, weightKg);
+  const bmi = bmiResult ? bmiResult.bmi : null;
+  const days = daysPerWeek || 3;
+  const goalLower = (goal || '').toLowerCase();
+  const isMuscleGoal = /muscle|bulk|strength|mass/.test(goalLower);
+  const isFatLossGoal = /fat|lean|cut|lose weight|weight loss|shred/.test(goalLower);
+
+  let baseWeeksVisible;
+  let baseMonthsMeaningful;
+  if (isMuscleGoal) {
+    if (days <= 2) { baseWeeksVisible = 12; baseMonthsMeaningful = 7.5; }
+    else if (days <= 4) { baseWeeksVisible = 7; baseMonthsMeaningful = 5; }
+    else { baseWeeksVisible = 5; baseMonthsMeaningful = 4; }
+  } else if (isFatLossGoal) {
+    baseWeeksVisible = 6;
+    baseMonthsMeaningful = 4.5;
+  } else {
+    baseWeeksVisible = 5;
+    baseMonthsMeaningful = 2.5;
+  }
+
+  let bmiMultiplier = 1.0;
+  if (bmi) {
+    if (isMuscleGoal) {
+      if (bmi < 18.5) bmiMultiplier = 0.85; // less fat to lose first — visible change shows sooner
+      else if (bmi >= 25) bmiMultiplier = 1.2; // muscle definition takes longer to show through
+    } else if (isFatLossGoal) {
+      if (bmi >= 30) bmiMultiplier = 1.3;
+      else if (bmi >= 25) bmiMultiplier = 1.15;
+      else if (bmi < 20) bmiMultiplier = 0.9;
+    }
+  }
+
+  const experienceMultiplier = experienceLevel === 'experienced' ? 1.2 : experienceLevel === 'some_experience' ? 1.05 : 1.0;
+
+  const weeksVisible = Math.max(3, Math.round(baseWeeksVisible * bmiMultiplier * experienceMultiplier));
+  const monthsMeaningful = Math.max(1.5, Math.round(baseMonthsMeaningful * bmiMultiplier * experienceMultiplier * 10) / 10);
+
+  return {
+    bmi,
+    bmiCategory: bmiResult ? bmiResult.category : null,
+    weeksVisible,
+    monthsMeaningful,
+  };
+}
+
 module.exports = {
   calculateBMI,
   calculateTargetCalories,
   calculateMacros,
+  calculateFitnessTimeline,
 };
