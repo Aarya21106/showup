@@ -257,4 +257,30 @@ router.get('/chat-history', (req, res) => {
   }
 });
 
+/**
+ * GET /api/reminder-plan
+ * Returns today's remaining reminders (workout, water, meals, sleep) as a
+ * flat list of {id, fireAt (UTC ISO), title, body} — the mobile app uses
+ * this to schedule LOCAL notifications on the device, so reminders still
+ * fire even if the server is asleep (Render's free tier) or the app has no
+ * connection at the moment one is due. Called on app foreground and after
+ * any action that could invalidate a pending reminder (a check-in, a logged
+ * meal), so the plan — and the device's scheduled alarms — stay current.
+ */
+router.get('/reminder-plan', (req, res) => {
+  try {
+    const phone = req.user.phone;
+    const user = db.getUserByPhone(phone);
+    if (!user) {
+      return res.json({ reminders: [] });
+    }
+    const { computeTodayReminderPlan } = require('../services/reminderPlanner');
+    const reminders = computeTodayReminderPlan(user);
+    res.json({ reminders });
+  } catch (err) {
+    console.error('[API] Error computing reminder plan:', err);
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 module.exports = router;
