@@ -206,6 +206,27 @@ function sanitizeScriptForLanguage(text, language) {
 // framing, autonomy-supportive reconnection to the user's own stated goals —
 // see that file's header for sources) plus a hard readability constraint,
 // since a distracted person reading on WhatsApp skims, they don't study.
+// Single source of truth for payment/deposit/pricing facts — computed once
+// from config, never duplicated by hand elsewhere. Bug fix: a user asked a
+// payment question through the general chat handler (which never included
+// these facts) and the model improvised an answer that flatly contradicted
+// the real deposit/penalty system ("there are no refunds here"). Injected
+// globally via buildCoachContext below so every function has the same
+// correct facts available, not just the one dedicated payment Q&A function —
+// these rules must be absolute everywhere, not just where someone remembered
+// to ground them.
+const PAYMENT_RULES_REFERENCE = `
+=== SHOWUP PRICING & TERMS — ABSOLUTE FACTS (this is the ONLY source of truth on payment/deposit/pricing — never invent numbers, flows, or steps not listed here, anywhere in this app) ===
+1. 🎁 14-Day Free Trial: once the ₹${config.depositAmountInr} refundable deposit is paid, the first 14 days have ZERO subscription charges.
+2. 💰 Refundable Deposit: ₹${config.depositAmountInr}. This is a REAL, refundable deposit — never say there's no deposit or no penalty for missing days.
+3. ⚙️ Platform Fee: ₹${config.platformFeeInr}, leaving a base refund pool of ₹${config.fullPayoutInr}.
+4. 🛡️ 2 Free Strikes Grace Rule: if the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty).
+5. ⚠️ Slip Penalty: beyond free strikes, each missed workout deducts ₹${config.slipPenaltyInr} from their ₹${config.fullPayoutInr} refund balance (floored at ₹0). Missing days is NOT free after the buffer — never claim otherwise.
+6. 📋 Basic (₹${config.pricing.basic.monthly}/month: reminders, check-ins, AI nutrition plan) vs Pro (₹${config.pricing.pro.monthly}/month: + diet logging, calorie tracking, burn logs, deep-dive coaching), both starting Month 2. Consistency discount: ₹${config.weeklyDiscountInr} off per CLEAN week, capped at ₹${config.maxDiscountInr}/month — never a flat one-time amount. Full consistency: Basic ₹${config.pricing.basic.minAfterDiscount}/month, Pro ₹${config.pricing.pro.minAfterDiscount}/month.
+7. 🎟️ Promo Code: typed directly in chat (never an external page/form). A valid code unlocks 14 days of full Pro access free — no deposit. Recorded deposit is set to ₹50 (waived, never charged) for internal tracking only. One-time use per account. Never guess, confirm, or reject a SPECIFIC code's validity yourself — that's decided elsewhere; just say you can't confirm it here.
+8. ✅ Payment confirmation is fully automatic via webhook the moment real payment lands. NEVER tell a user to reply "paid" or type anything to confirm payment.
+`;
+
 const GLOBAL_VOICE_DIRECTIVE = `
 == HOW YOU TALK (applies to every reply) ==
 Short words over long ones. Short sentences. Say what the user actually needs to know or do — cut anything that doesn't serve that. No corporate-speak, no filler, no "as an AI." If a plainer word says it, use that one.
@@ -217,7 +238,7 @@ You are a FITNESS AND NUTRITION coach. That is the whole job. If a message asks 
 `;
 
 function buildCoachContext(user) {
-  let ctx = GLOBAL_VOICE_DIRECTIVE;
+  let ctx = GLOBAL_VOICE_DIRECTIVE + PAYMENT_RULES_REFERENCE;
   if (user) {
     const db = require('../db/db');
     const fitness = require('../utils/fitness');
@@ -1903,23 +1924,8 @@ async function answerPaymentAndTermsQuery({ user, message, history }) {
   const coachCtx = user ? buildCoachContext(user) : '';
 
   const prompt = `You are ShowUp, a direct, friendly fitness coach on WhatsApp.
-The user is currently at the payment / pledge lock-in step of onboarding. They are asking a question about the plans, terms, deposit, pricing, differences between plans, or where we left off.
+The user is currently at the payment / pledge lock-in step of onboarding. They are asking a question about the plans, terms, deposit, pricing, differences between plans, or where we left off. This user has NOT paid yet unless told otherwise below — never phrase anything as already active or in progress for them.
 ${coachCtx}
-
-=== SHOWUP PRICING & TERMS MASTER REFERENCE (this is the ONLY source of truth — never invent numbers, flows, or steps not listed here) ===
-1. 🎁 14-Day Free Trial: once the ₹300 refundable deposit is paid, the first 14 days have ZERO subscription charges. This user has NOT paid yet unless told otherwise below — never phrase this as already active or in progress for them.
-2. 💰 Refundable Deposit: ₹300 (${config.depositAmountInr} INR).
-3. ⚙️ Platform Fee: ₹30 (${config.platformFeeInr} INR) charged for platform administration and server infrastructure, leaving a base refund pool of ₹270 (${config.fullPayoutInr} INR).
-4. 🛡️ 2 Free Strikes Grace Rule: If the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty!).
-5. ⚠️ Slip Penalty: Beyond free strikes, each missed workout deducts ₹50 (${config.slipPenaltyInr} INR) from their ₹270 refund balance (floored at ₹0).
-6. 📋 Basic Plan vs Pro Plan (Starting Month 2):
-   - Basic Plan (₹${config.pricing.basic.monthly}/month base):
-     * Includes daily reminders, check-in verification (photo proof), AI nutrition plan, doubt clearing / general Q&A.
-   - Pro Plan (₹${config.pricing.pro.monthly}/month base):
-     * Includes EVERYTHING in Basic + diet logging, calorie tracking, burn logs, exercise deep-dives, performance tracking, and detailed progress analytics.
-   - Consistency Discount (both plans): ₹${config.weeklyDiscountInr} off for every CLEAN week (zero missed check-ins that week) during the pledge, capped at ₹${config.maxDiscountInr}/month — NOT a flat one-time amount. Full consistency: Basic drops to ₹${config.pricing.basic.minAfterDiscount}/month, Pro drops to ₹${config.pricing.pro.minAfterDiscount}/month.
-7. 🎟️ Promo Code: typed directly in this chat (never on any external page or form — there is no "payment page" to apply it on). A valid code instantly unlocks 14 days of full Pro access completely free — no deposit, no payment of any kind. Their refundable-deposit record is set to ₹50 (waived, never actually charged) purely for internal tracking. One-time use per account. If a user mentions a code and you don't know whether it's valid, say you can't confirm it here and that they should just try sending it directly — never guess, confirm, or reject a specific code yourself.
-8. ✅ Payment confirmation is fully automatic: the moment a real deposit payment is completed via the link, it is verified and the account activates on its own — there is nothing to type or confirm manually. NEVER tell the user to reply "paid" or type any word to confirm payment; that mechanism no longer exists.
 
 === USER CONTEXT ===
 Name: ${user.name || 'Friend'}
