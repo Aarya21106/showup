@@ -106,4 +106,22 @@ Use these exact reference values for the matching items (scale proportionally if
 `.trim();
 }
 
-module.exports = { FOOD_ITEMS, findFoodMatches, lookupFood, formatFoodMatchesForPrompt };
+/**
+ * Renders the FULL reference list for grounding meal-PLAN generation (as
+ * opposed to formatFoodMatchesForPrompt, which only surfaces items already
+ * mentioned in a specific message). Added because generateTailoredNutritionPlan
+ * — the function that builds a user's actual daily plan — had zero grounding
+ * in this file at all despite it being the highest-value place to use real,
+ * verified macro data instead of letting the model invent numbers for foods
+ * that already have a checked reference value.
+ */
+function formatFullFoodKBForPrompt() {
+  return `
+== FOOD REFERENCE KNOWLEDGE BASE (verified calorie/macro values) ==
+${FOOD_ITEMS.map((m) => `  - ${m.name}: ${m.serving} = ${m.calories} kcal, ${m.protein}g protein, ${m.carbs}g carbs, ${m.fat}g fat`).join('\n')}
+== END KNOWLEDGE BASE ==
+When building the plan, PREFER items from this list (scaling portions as needed) over inventing your own numbers for the same food — these are checked values, not estimates. Use your own knowledge only for foods not covered here.
+`.trim();
+}
+
+module.exports = { FOOD_ITEMS, findFoodMatches, lookupFood, formatFoodMatchesForPrompt, formatFullFoodKBForPrompt };

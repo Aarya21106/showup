@@ -1201,9 +1201,16 @@ async function generateTailoredNutritionPlan(user) {
   const fitness = require('../utils/fitness');
   const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
   const coachCtx = buildCoachContext(user);
+  // Bug fix: this generated a full day's meal plan with zero grounding in the
+  // verified food knowledge base — every calorie/macro number was invented
+  // fresh by the model instead of using the checked reference values already
+  // built for exactly this purpose (see knowledge/foodKnowledgeBase.js).
+  const { formatFullFoodKBForPrompt } = require('../knowledge/foodKnowledgeBase');
+  const foodKbBlock = formatFullFoodKBForPrompt();
 
   const prompt = `You are ShowUp, an elite AI fitness and nutrition coach delivering a personalized nutrition plan.
 ${coachCtx}
+${foodKbBlock}
 
 User Profile:
 - Name: ${user.name}
@@ -1375,9 +1382,16 @@ async function parseDietChartImage({ imageBase64, mimeType, user }) {
   const fitness = require('../utils/fitness');
   const macros = fitness.calculateMacros(targetCalories, user.weight || 70);
   const coachCtx = buildCoachContext(user);
+  // Same gap as generateTailoredNutritionPlan: estimating calories/protein for
+  // OCR'd meals with zero grounding in the verified food KB. The exact items
+  // aren't known until after OCR, so the full list is handed over the same
+  // way — "use these values if an extracted item matches."
+  const { formatFullFoodKBForPrompt } = require('../knowledge/foodKnowledgeBase');
+  const foodKbBlock = formatFullFoodKBForPrompt();
 
   const prompt = `You are ShowUp, an elite AI fitness coach and nutritionist reviewing an uploaded photo of a user's diet chart, meal sheet, or nutrition plan.
 ${coachCtx}
+${foodKbBlock}
 
 User Profile:
 - Name: ${user.name}
