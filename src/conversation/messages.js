@@ -101,7 +101,7 @@ function trackingDeclinedFinal(lang) {
 }
 
 const QUESTIONS = {
-  name: "Hey, I'm ShowUp — your AI fitness coach.\nI'll help you train, eat, recover, track progress, and adjust your plan as you improve.\n\nWhat should I call you?",
+  name: "Hey, I'm ShowUp.\n\nMost people quit by week two. Not the ones who use me.\n\nI build your plan, remind you daily, and keep you honest — training, food, progress, all in one place.\n\nWhat's your name?",
   goal: "What are you primarily trying to achieve right now?\n\n• Build muscle\n• Lose fat\n• Get stronger\n• Improve fitness / endurance\n• Something else",
   experience: "How would you describe your current training experience?\n\n• Beginner\n• Some experience\n• Experienced",
   current_training: "What does your current training look like right now? (e.g. Gym lifting, home workouts, outdoor running, cycling, brisk walking, or starting fresh?)",

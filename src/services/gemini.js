@@ -2375,6 +2375,7 @@ Reply ONLY in ${langName}.`;
 
 module.exports = {
   callGeminiRaw: callGemini,
+  sanitizeScriptForLanguage,
   GeminiError,
   acknowledgeAnswer,
   verifyCheckin,

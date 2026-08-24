@@ -7,6 +7,7 @@ const gemini = require('../services/gemini');
 const messaging = require('../services/messaging');
 const config = require('../config');
 const razorpay = require('../services/razorpay');
+const motivationEngine = require('../services/motivationEngine');
 const { todayStr, addDaysStr } = require('../utils/date');
 const { isOffTopicQuestion, containsConcernOrObjection } = require('../utils/intent');
 
@@ -72,8 +73,20 @@ async function sendDepositLink(user, tier) {
 }
 
 async function sendTierSelectionAsk(user) {
-  // Show deposit rules + Basic vs Pro tier choice
-  await messaging.sendText(user.phone, messages.t(user.language, 'accountabilityIntro', { name: user.name }));
+  // Short, psychologically-grounded pitch (loss aversion + identity framing,
+  // see services/motivationEngine.js) — falls back to the plain static
+  // message if the AI call fails, so this step never silently breaks.
+  const pitch = await motivationEngine.generateMembershipPitch(user, {
+    depositInr: config.depositAmountInr,
+    slipPenaltyInr: config.slipPenaltyInr,
+    freeStrikes: config.freeStrikesCount,
+    refundInr: config.fullPayoutInr,
+    basicPrice: config.pricing.basic.monthly,
+    proPrice: config.pricing.pro.monthly,
+    weeklyDiscountInr: config.weeklyDiscountInr,
+    maxDiscountInr: config.maxDiscountInr,
+  });
+  await messaging.sendText(user.phone, pitch || messages.t(user.language, 'accountabilityIntro', { name: user.name }));
 }
 
 /**
@@ -93,6 +106,12 @@ async function deliverPlanForConfirmation(updatedUser, planText) {
  */
 async function deliverDay1AndAskReminderConsent(updatedUser) {
   const phone = updatedUser.phone;
+  try {
+    const kickoff = await motivationEngine.generateDay1Kickoff(updatedUser);
+    if (kickoff) await messaging.sendText(phone, kickoff);
+  } catch (err) {
+    console.error('Error generating Day 1 kickoff:', err);
+  }
   try {
     const day1 = await gemini.generateDay1Workout(updatedUser);
     if (day1) await messaging.sendText(phone, day1);
