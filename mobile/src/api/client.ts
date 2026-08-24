@@ -191,4 +191,13 @@ export const ShowUpApi = {
     const response = await api.get('/api/checkins');
     return response.data.checkins || [];
   },
+
+  // Fetch today's remaining reminders (workout, water, meals, sleep) — used
+  // to schedule local on-device notifications so they still fire even if
+  // the server is asleep or the app has no connection when one is due.
+  async getReminderPlan(): Promise<{ reminders: Array<{ id: string; fireAt: string; title: string; body: string }> }> {
+    const api = getAxiosInstance();
+    const response = await api.get('/api/reminder-plan');
+    return response.data;
+  },
 };

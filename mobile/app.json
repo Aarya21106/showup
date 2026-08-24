@@ -42,7 +42,8 @@
         "expo-notifications",
         {
           "icon": "./assets/icon.png",
-          "color": "#10B981"
+          "color": "#10B981",
+          "sounds": ["./assets/sounds/reminder.wav"]
         }
       ],
       "@react-native-google-signin/google-signin"

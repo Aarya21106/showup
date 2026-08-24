@@ -12,6 +12,7 @@ import {
   TouchableOpacity,
   Keyboard,
   useColorScheme,
+  AppState,
 } from 'react-native';
 import { X } from 'lucide-react-native';
 import { Spacing } from '../theme/colors';
@@ -25,6 +26,7 @@ import { UserModal } from '../components/UserModal';
 import { ShowUpApi, ChatMessage } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { loadCachedMessages, saveCachedMessages, clearCachedMessages } from '../utils/chatStorage';
+import { syncReminderPlan } from '../utils/reminderSync';
 
 const WELCOME_MESSAGE: ChatMessage = {
   id: 'welcome-1',
@@ -142,6 +144,10 @@ export const ChatScreen: React.FC = () => {
         const idsToAck = pending.map((m) => m.serverId).filter((id): id is number => typeof id === 'number' && !isNaN(id));
         await ShowUpApi.acknowledgeMessages(idsToAck);
         refreshProfile();
+        // A new bot message almost always follows a state change (check-in
+        // accepted, meal logged, etc.) — resync local reminder alarms so a
+        // now-pointless one (you just did the thing) drops off the device.
+        syncReminderPlan();
       }
     } catch (e) {}
   }, [refreshProfile]);
@@ -151,6 +157,22 @@ export const ChatScreen: React.FC = () => {
     const interval = setInterval(fetchNewMessages, 3000);
     return () => clearInterval(interval);
   }, [fetchNewMessages, checkConnection]);
+
+  // Local reminder alarms (see utils/reminderSync.ts) — sync on mount, on
+  // every return to foreground (the screen stays mounted while backgrounded,
+  // so mount alone would only fire once ever), and periodically while open,
+  // so today's plan stays current whenever there's actually a connection.
+  useEffect(() => {
+    syncReminderPlan();
+    const reminderInterval = setInterval(syncReminderPlan, 10 * 60 * 1000);
+    const appStateSub = AppState.addEventListener('change', (nextState) => {
+      if (nextState === 'active') syncReminderPlan();
+    });
+    return () => {
+      clearInterval(reminderInterval);
+      appStateSub.remove();
+    };
+  }, []);
 
   const scrollToBottom = (animated = true) => {
     setTimeout(() => {
