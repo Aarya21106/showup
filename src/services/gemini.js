@@ -184,12 +184,16 @@ function sanitizeScriptForLanguage(text, language) {
     }
     // Remove any remaining stray Tamil script characters
     cleaned = cleaned.replace(/[\u0B80-\u0BFF]+/g, '');
-    // Clean potential leftover duplicate spaces
-    return cleaned.replace(/\s{2,}/g, ' ').trim();
+    // Clean leftover duplicate spaces/tabs WITHOUT touching newlines - \s{2,}
+    // matched newlines too, which silently collapsed every line break and
+    // blank line in the reply down to a single space (the readability
+    // formatting only ever applied in English because of this).
+    return cleaned.replace(/[ \t]{2,}/g, ' ').trim();
   }
   if (language === 'hl') {
-    // Remove any stray Devanagari script characters
-    return text.replace(/[\u0900-\u097F]+/g, '').replace(/\s{2,}/g, ' ').trim();
+    // Remove any stray Devanagari script characters. Same newline-preserving
+    // whitespace cleanup as above - see comment there.
+    return text.replace(/[\u0900-\u097F]+/g, '').replace(/[ \t]{2,}/g, ' ').trim();
   }
   return text;
 }
