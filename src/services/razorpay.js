@@ -20,9 +20,11 @@ async function createDepositPaymentLink({ user, tier }) {
   const razorpay = getClient();
   if (!razorpay) return null;
 
+  const amountInr = config.testDepositChargeInr || config.depositAmountInr;
+
   try {
     const link = await razorpay.paymentLink.create({
-      amount: config.depositAmountInr * 100,
+      amount: amountInr * 100,
       currency: 'INR',
       description: `ShowUp ${tier === 'pro' ? 'Pro' : 'Basic'} refundable deposit`,
       reference_id: `user_${user.id}_${Date.now()}`,
@@ -48,7 +50,9 @@ async function createSubscriptionPaymentLink({ user, tier }) {
   const razorpay = getClient();
   if (!razorpay) return null;
 
-  const amountInr = tier === 'pro' ? config.pricing.pro.monthly : config.pricing.basic.monthly;
+  const amountInr = tier === 'pro'
+    ? (config.testProChargeInr || config.pricing.pro.monthly)
+    : config.pricing.basic.monthly;
 
   try {
     const link = await razorpay.paymentLink.create({

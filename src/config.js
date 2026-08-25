@@ -39,6 +39,12 @@ const config = {
   pledgeDays: parseInt(process.env.PLEDGE_DAYS || '30', 10),
   trialDays: 14,
   depositAmountInr: parseInt(process.env.DEPOSIT_AMOUNT_INR || '300', 10),
+  // Real amounts actually charged via Razorpay while live-testing the payment
+  // flow — separate from depositAmountInr/pricing.pro.monthly above so every
+  // user-facing message keeps quoting the real ₹300 / ₹239 while the actual
+  // live charge stays small. Falls back to the real amount when unset.
+  testDepositChargeInr: parseInt(process.env.TEST_DEPOSIT_CHARGE_INR || '', 10) || null,
+  testProChargeInr: parseInt(process.env.TEST_PRO_CHARGE_INR || '', 10) || null,
   platformFeeInr: parseInt(process.env.PLATFORM_FEE_INR || '30', 10),
   slipPenaltyInr: parseInt(process.env.SLIP_PENALTY_INR || '50', 10),
   freeStrikesThresholdDays: 10, // if workout days > 10 per month
