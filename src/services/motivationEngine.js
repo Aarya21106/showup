@@ -64,8 +64,10 @@ const SHORT_WORDS_RULE = `WORD RULE (critical): use short, plain words. Say "sta
  */
 async function generateMembershipPitch(user, { depositInr, slipPenaltyInr, freeStrikes, refundInr, basicPrice, proPrice, weeklyDiscountInr, maxDiscountInr }) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
+  const coachCtx = buildCoachContext(user);
 
   const prompt = `You are ShowUp, a direct fitness coach on WhatsApp. Write the message that asks ${user.name || 'the user'} to lock in their membership before Day 1.
+${coachCtx}
 ${SHORT_WORDS_RULE}
 
 Real facts to use (never invent others):
@@ -131,10 +133,12 @@ Zero emojis, no filler. Reply in ${langName}.`;
 async function generateStreakSaveNudge(user) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
   const streak = user.streak || 0;
+  const coachCtx = buildCoachContext(user);
 
   if (streak < 1) return null; // no real streak to protect — don't fake urgency
 
   const prompt = `You are ShowUp, a direct fitness coach on WhatsApp. ${user.name || 'The user'} has a real ${streak}-day streak and hasn't checked in yet today.
+${coachCtx}
 ${SHORT_WORDS_RULE}
 
 Write one short nudge (under 30 words, 1-2 lines): the streak they already built is real and at risk TODAY if they skip — losing it costs more than never starting one. No guilt-tripping, just the plain stakes. End with a short nudge to check in now.
