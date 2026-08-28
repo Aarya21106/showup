@@ -6,7 +6,7 @@ const messaging = require('../services/messaging');
 const razorpay = require('../services/razorpay');
 const config = require('../config');
 const { todayStr } = require('../utils/date');
-const { applyDepositPayment } = require('../services/depositActivation');
+const { applyDepositPayment, applyTierFeePayment } = require('../services/depositActivation');
 
 const router = express.Router();
 
@@ -55,7 +55,7 @@ router.post('/webhook', async (req, res) => {
       return;
     }
 
-    const paymentType = notes.type === 'subscription' ? 'subscription' : 'deposit';
+    const paymentType = notes.type === 'subscription' ? 'subscription' : (notes.type === 'initial_fee' ? 'initial_fee' : 'deposit');
     const amountPaise = paymentEntity?.amount ?? linkEntity?.amount_paid ?? linkEntity?.amount ?? 0;
     const razorpayPaymentId = paymentEntity?.id || null;
     const razorpayLinkId = linkEntity?.id || null;
@@ -92,6 +92,13 @@ router.post('/webhook', async (req, res) => {
         state: states.ACTIVE,
       });
       await messaging.sendText(updated.phone, `Renewal confirmed — your ${activeTier === 'pro' ? 'Pro' : 'Basic'} membership is active for another 30 days. Day 1 starts now, let's go!`);
+      return;
+    }
+
+    if (paymentType === 'initial_fee') {
+      await applyTierFeePayment({
+        user, tier: activeTier, amountInr: Math.round(amountPaise / 100), razorpayPaymentId, razorpayLinkId,
+      });
       return;
     }
 

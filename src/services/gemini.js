@@ -221,14 +221,14 @@ function sanitizeScriptForLanguage(text, language) {
 // to ground them.
 const PAYMENT_RULES_REFERENCE = `
 === SHOWUP PRICING & TERMS — ABSOLUTE FACTS (this is the ONLY source of truth on payment/deposit/pricing — never invent numbers, flows, or steps not listed here, anywhere in this app) ===
-1. 🎁 14-Day Free Trial: once the ₹${config.depositAmountInr} refundable deposit is paid, the first 14 days have ZERO subscription charges.
+1. 💳 TWO separate payments activate an account (no promo code): the ₹${config.depositAmountInr} refundable deposit, AND the first month's tier fee (₹${config.pricing.basic.monthly} Basic / ₹${config.pricing.pro.monthly} Pro) — TWO different payment links, both required. There is NO free trial period without a promo code — never say the deposit alone unlocks free days.
 2. 💰 Refundable Deposit: ₹${config.depositAmountInr}. This is a REAL, refundable deposit — never say there's no deposit or no penalty for missing days.
 3. ⚙️ Platform Fee: ₹${config.platformFeeInr}, leaving a base refund pool of ₹${config.fullPayoutInr}.
 4. 🛡️ 2 Free Strikes Grace Rule: if the user's committed schedule has >10 workout days in the month (e.g. 3+ days/week), they get 2 FREE STRIKES (first 2 missed workouts incur ₹0 penalty).
 5. ⚠️ Slip Penalty: beyond free strikes, each missed workout deducts ₹${config.slipPenaltyInr} from their ₹${config.fullPayoutInr} refund balance (floored at ₹0). Missing days is NOT free after the buffer — never claim otherwise.
-6. 📋 Basic (₹${config.pricing.basic.monthly}/month: reminders, check-ins, AI nutrition plan) vs Pro (₹${config.pricing.pro.monthly}/month: + diet logging, calorie tracking, burn logs, deep-dive coaching), both starting Month 2. Consistency discount: ₹${config.weeklyDiscountInr} off per CLEAN week, capped at ₹${config.maxDiscountInr}/month — never a flat one-time amount. Full consistency: Basic ₹${config.pricing.basic.minAfterDiscount}/month, Pro ₹${config.pricing.pro.minAfterDiscount}/month.
-7. 🎟️ Promo Code: typed directly in chat (never an external page/form). A valid code unlocks 14 days of full Pro access free — no deposit. Recorded deposit is set to ₹50 (waived, never charged) for internal tracking only. One-time use per account. Never guess, confirm, or reject a SPECIFIC code's validity yourself — that's decided elsewhere; just say you can't confirm it here.
-8. ✅ Payment confirmation is fully automatic via webhook the moment real payment lands. NEVER tell a user to reply "paid" or type anything to confirm payment.
+6. 📋 Basic (₹${config.pricing.basic.monthly}/month: reminders, check-ins, AI nutrition plan) vs Pro (₹${config.pricing.pro.monthly}/month: + diet logging, calorie tracking, burn logs, deep-dive coaching) — the first month's fee is charged upfront at signup (see fact 1), then again every 30 days as a renewal. Consistency discount: ₹${config.weeklyDiscountInr} off per CLEAN week, capped at ₹${config.maxDiscountInr}/month — never a flat one-time amount. Full consistency: Basic ₹${config.pricing.basic.minAfterDiscount}/month, Pro ₹${config.pricing.pro.minAfterDiscount}/month.
+7. 🎟️ Promo Code: typed directly in chat (never an external page/form). This is the ONLY way to get 14 days of full Pro access completely free — no deposit, no tier fee, nothing to pay. Without a valid promo code, both charges in fact 1 are required. Recorded deposit is set to ₹50 (waived, never charged) for internal tracking only. One-time use per account. Never guess, confirm, or reject a SPECIFIC code's validity yourself — that's decided elsewhere; just say you can't confirm it here.
+8. ✅ Payment confirmation is fully automatic via webhook the moment real payment lands, for BOTH the deposit and the tier fee independently. NEVER tell a user to reply "paid" or type anything to confirm payment as a required step — that only exists as a background safety net if the automatic confirmation is ever delayed.
 `;
 
 const GLOBAL_VOICE_DIRECTIVE = `
@@ -1936,9 +1936,9 @@ Keep it under 30 words. One sentence, maybe two max.`;
 
 /**
  * Dynamic Q&A during AWAITING_PAYMENT state:
- * Answers user questions about terms & conditions, refundable deposit, platform fee,
- * 2 free strikes, slip penalties, 14-day free trial, promo codes, and differences
- * between the Basic and Pro plans.
+ * Answers user questions about terms & conditions, refundable deposit, first-
+ * month tier fee, platform fee, 2 free strikes, slip penalties, the promo-
+ * code-only 14-day free trial, and differences between the Basic and Pro plans.
  */
 async function answerPaymentAndTermsQuery({ user, message, history }) {
   const langName = LANGUAGE_NAMES[user.language] || 'English';
@@ -1971,7 +1971,7 @@ INSTRUCTIONS:
    - If they ask about terms/deposit/strikes, explain the ₹300 deposit, ₹30 fee (₹270 base refund), 2 free strikes for >10 days, and ₹50 penalty.
    - If they ask about a promo code, use reference point 7 above exactly — never invent a redemption flow.
 2. Keep your answer friendly, respectful, and conversational (max 90 words).
-3. Do NOT tell them to reply "paid" or type anything to confirm payment — say instead that their account activates automatically once payment is confirmed. If they haven't picked a tier yet, remind them to reply "1" for Basic or "2" for Pro to get their deposit link.`;
+3. Do NOT tell them to reply "paid" or type anything to confirm payment — say instead that their account activates automatically once payment is confirmed. If they haven't picked a tier yet, remind them to reply "1" for Basic or "2" for Pro to get their two payment links (deposit + first month's fee).`;
 
   try {
     const text = await callGemini({ parts: [{ text: prompt }], temperature: 0.5 });

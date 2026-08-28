@@ -12,9 +12,14 @@ function getClient() {
 
 /**
  * Creates a per-user Razorpay Payment Link for the refundable deposit, tagged
- * with this user's id and chosen tier in `notes` — the webhook handler reads
- * those back to know exactly whose payment just came in, instead of trusting
+ * with this user's id, tier, and type: 'deposit' in `notes` — the webhook
+ * handler and the reconciliation fallback both read these back to know
+ * exactly whose payment just came in and what it's for, instead of trusting
  * a self-reported "paid" text reply.
+ *
+ * This is one of TWO separate charges required to activate an account (see
+ * createTierFeePaymentLink for the other) unless a valid promo code was used
+ * instead, which waives both.
  */
 async function createDepositPaymentLink({ user, tier }) {
   const razorpay = getClient();
@@ -27,24 +32,58 @@ async function createDepositPaymentLink({ user, tier }) {
       amount: amountInr * 100,
       currency: 'INR',
       description: `ShowUp ${tier === 'pro' ? 'Pro' : 'Basic'} refundable deposit`,
-      reference_id: `user_${user.id}_${Date.now()}`,
-      notes: { user_id: String(user.id), tier },
+      reference_id: `user_${user.id}_deposit_${Date.now()}`,
+      notes: { user_id: String(user.id), tier, type: 'deposit' },
       customer: { name: user.name || 'ShowUp Member' },
       notify: { sms: false, email: false },
       reminder_enable: false,
     });
     return link.short_url;
   } catch (err) {
-    console.error('[Razorpay] Failed to create payment link:', err.message);
+    console.error('[Razorpay] Failed to create deposit payment link:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Creates a per-user Razorpay Payment Link for the FIRST month's tier fee —
+ * the second of the two separate charges required to activate an account
+ * (alongside the refundable deposit above), unless a valid promo code
+ * waives both and grants the 14-day free trial instead. Tagged type:
+ * 'initial_fee' so the webhook/reconciliation can tell this apart from a
+ * later renewal (type: 'subscription', see createSubscriptionPaymentLink).
+ */
+async function createTierFeePaymentLink({ user, tier }) {
+  const razorpay = getClient();
+  if (!razorpay) return null;
+
+  const amountInr = tier === 'pro'
+    ? (config.testProChargeInr || config.pricing.pro.monthly)
+    : (config.testBasicChargeInr || config.pricing.basic.monthly);
+
+  try {
+    const link = await razorpay.paymentLink.create({
+      amount: amountInr * 100,
+      currency: 'INR',
+      description: `ShowUp ${tier === 'pro' ? 'Pro' : 'Basic'} first month`,
+      reference_id: `user_${user.id}_initialfee_${Date.now()}`,
+      notes: { user_id: String(user.id), tier, type: 'initial_fee' },
+      customer: { name: user.name || 'ShowUp Member' },
+      notify: { sms: false, email: false },
+      reminder_enable: false,
+    });
+    return link.short_url;
+  } catch (err) {
+    console.error('[Razorpay] Failed to create tier-fee payment link:', err.message);
     return null;
   }
 }
 
 /**
  * Creates a per-user Razorpay Payment Link for a monthly subscription renewal
- * (sent when a user's 30-day pledge completes) — same pattern as the deposit
- * link, but tagged type: 'subscription' so the webhook knows to renew the
- * pledge cycle instead of running the deposit-confirmation flow.
+ * (sent when a user's 30-day pledge completes) — same pattern as the two
+ * links above, but tagged type: 'subscription' so the webhook knows to renew
+ * the pledge cycle instead of running the initial-activation flow.
  */
 async function createSubscriptionPaymentLink({ user, tier }) {
   const razorpay = getClient();
@@ -52,7 +91,7 @@ async function createSubscriptionPaymentLink({ user, tier }) {
 
   const amountInr = tier === 'pro'
     ? (config.testProChargeInr || config.pricing.pro.monthly)
-    : config.pricing.basic.monthly;
+    : (config.testBasicChargeInr || config.pricing.basic.monthly);
 
   try {
     const link = await razorpay.paymentLink.create({
@@ -81,23 +120,27 @@ async function createSubscriptionPaymentLink({ user, tier }) {
  * verify status"), this asks Razorpay directly — via our own real API
  * credentials, never by fabricating or replaying a webhook payload — whether
  * a payment link tagged for this user has actually been paid. Scans recent
- * payment links (Razorpay's list API has no server-side filter by notes) and
- * returns the most recent PAID one tagged with this user's id, or null.
+ * payment links (Razorpay's list API has no server-side filter by notes).
+ * `type` selects which of the two initial charges to look for ('deposit' or
+ * 'initial_fee'); returns the most recent matching PAID link, or null.
  */
-async function findPaidDepositLinkForUser(userId) {
+async function findPaidLinkForUser(userId, type) {
   const razorpay = getClient();
   if (!razorpay) return null;
 
   try {
     const res = await razorpay.paymentLink.all({ count: 30 });
     const links = res.payment_links || res.items || [];
-    const match = links.find((l) => l.notes && l.notes.user_id === String(userId) && l.status === 'paid' && l.notes.type !== 'subscription');
+    const match = links.find((l) => l.notes && l.notes.user_id === String(userId) && l.status === 'paid' && l.notes.type === type);
     return match || null;
   } catch (err) {
-    console.error('[Razorpay] findPaidDepositLinkForUser error:', err.message);
+    console.error('[Razorpay] findPaidLinkForUser error:', err.message);
     return null;
   }
 }
+
+const findPaidDepositLinkForUser = (userId) => findPaidLinkForUser(userId, 'deposit');
+const findPaidTierFeeLinkForUser = (userId) => findPaidLinkForUser(userId, 'initial_fee');
 
 /** Verifies the X-Razorpay-Signature header against the raw webhook body. */
 function verifyWebhookSignature(rawBody, signature) {
@@ -110,4 +153,11 @@ function verifyWebhookSignature(rawBody, signature) {
   }
 }
 
-module.exports = { createDepositPaymentLink, createSubscriptionPaymentLink, verifyWebhookSignature, findPaidDepositLinkForUser };
+module.exports = {
+  createDepositPaymentLink,
+  createTierFeePaymentLink,
+  createSubscriptionPaymentLink,
+  verifyWebhookSignature,
+  findPaidDepositLinkForUser,
+  findPaidTierFeeLinkForUser,
+};

@@ -75,14 +75,14 @@ Real facts to use (never invent others):
 - 30-day pledge, first ${freeStrikes} misses free, then ₹${slipPenaltyInr}/miss
 - Full refund on a clean run: ₹${refundInr}
 - Basic ₹${basicPrice}/month (reminders, check-ins, AI nutrition plan) or Pro ₹${proPrice}/month (+ diet logging, calorie tracking, burn logs, deep-dive coaching)
-- Both include the deposit. ₹${weeklyDiscountInr} off every clean week, up to ₹${maxDiscountInr}/month
-- Reply "1" for Basic, "2" for Pro, or send a promo code
+- TWO separate payments activate Day 1: the deposit above AND the first month's tier fee (Basic/Pro price above) — there is no free trial without a promo code. ₹${weeklyDiscountInr} off every clean week once active, up to ₹${maxDiscountInr}/month
+- Reply "1" for Basic, "2" for Pro (both links get sent), or send a promo code instead for 14 days completely free, zero payment
 
 Structure (short lines, blank line between each, total under 90 words):
 1. One line: the deposit is THEIRS, held, not spent — they get it back by showing up, not by paying more.
 2. One line: this isn't about tracking workouts, it's about becoming someone who doesn't quit on themselves.
-3. The plan choice (Basic vs Pro) in the shortest form that's still clear.
-4. One line, the clear next action (reply 1, 2, or send a promo code).
+3. The plan choice (Basic vs Pro) AND that two payments (deposit + first month) activate it — in the shortest form that's still clear.
+4. One line, the clear next action (reply 1, 2, or send a promo code for a free trial instead).
 
 Zero emojis. Reply in ${langName}.`;
 

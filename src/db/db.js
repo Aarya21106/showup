@@ -71,6 +71,7 @@ const userColumnMigrations = [
   ['promo_code_used', 'ALTER TABLE users ADD COLUMN promo_code_used TEXT DEFAULT NULL'],
   ['deposit_amount_inr', 'ALTER TABLE users ADD COLUMN deposit_amount_inr INTEGER DEFAULT NULL'],
   ['awaiting_promo_retry', 'ALTER TABLE users ADD COLUMN awaiting_promo_retry INTEGER DEFAULT 0'],
+  ['tier_fee_status', "ALTER TABLE users ADD COLUMN tier_fee_status TEXT DEFAULT 'unpaid'"],
 ];
 for (const [column, sql] of userColumnMigrations) {
   if (!existingUserColumns.has(column)) db.exec(sql);
@@ -182,9 +183,11 @@ function mirrorFullUser(user) {
   const placeholders = columns.map((c) => `@${c}`).join(', ');
   const updateClause = columns.filter((c) => c !== 'id').map((c) => `${c} = excluded.${c}`).join(', ');
   const sql = `INSERT INTO users (${columnList}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateClause}`;
-  tursoClient.execute({ sql, args: user }).catch((err) => {
+  const p = tursoClient.execute({ sql, args: user }).catch((err) => {
     console.error('[Turso] Full user mirror failed:', err.message);
   });
+  pendingMirrors.add(p);
+  p.finally(() => pendingMirrors.delete(p));
 }
 
 const ALL_MIGRATIONS = [
@@ -354,7 +357,7 @@ function getOrCreateUserByGoogle({ googleUid, email, name }) {
 const USER_FIELDS = new Set([
   'name', 'language', 'language_locked', 'activity', 'days_per_week', 'checkin_time', 'blocker_text',
   'vision_text', 'commitment_score', 'onboarding_history', 'current_gesture',
-  'state', 'pending_checkin_id', 'deposit_status', 'started_at', 'day_count',
+  'state', 'pending_checkin_id', 'deposit_status', 'tier_fee_status', 'started_at', 'day_count',
   'streak', 'missed_count', 'last_prompted_date', 'last_weekly_summary_date', 'poster_path',
   'tier', 'height', 'weight', 'target_calories', 'target_muscle', 'allergy',
   'timetable', 'goal', 'water_reminders_sent', 'workout_reminded_date', 'workout_acknowledged_date',

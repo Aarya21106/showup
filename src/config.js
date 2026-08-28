@@ -45,6 +45,7 @@ const config = {
   // live charge stays small. Falls back to the real amount when unset.
   testDepositChargeInr: parseInt(process.env.TEST_DEPOSIT_CHARGE_INR || '', 10) || null,
   testProChargeInr: parseInt(process.env.TEST_PRO_CHARGE_INR || '', 10) || null,
+  testBasicChargeInr: parseInt(process.env.TEST_BASIC_CHARGE_INR || '', 10) || null,
   platformFeeInr: parseInt(process.env.PLATFORM_FEE_INR || '30', 10),
   slipPenaltyInr: parseInt(process.env.SLIP_PENALTY_INR || '50', 10),
   freeStrikesThresholdDays: 10, // if workout days > 10 per month

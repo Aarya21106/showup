@@ -12,7 +12,8 @@ CREATE TABLE IF NOT EXISTS users (
   commitment_score    INTEGER,
   state               TEXT NOT NULL DEFAULT 'ONBOARD_NAME',
   pending_checkin_id  INTEGER,
-  deposit_status      TEXT NOT NULL DEFAULT 'unpaid',   -- unpaid | paid
+  deposit_status      TEXT NOT NULL DEFAULT 'unpaid',   -- unpaid | paid | trial
+  tier_fee_status     TEXT NOT NULL DEFAULT 'unpaid',   -- unpaid | paid | waived (promo code) -- first month's tier fee, separate charge from the deposit
   started_at          TEXT,                 -- YYYY-MM-DD, day 1 of the pledge
   day_count           INTEGER NOT NULL DEFAULT 0,
   streak              INTEGER NOT NULL DEFAULT 0,

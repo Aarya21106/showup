@@ -145,14 +145,15 @@ const T = {
       `Reply "1" or "2" — or send a promo code for free trial access.`,
     depositAsk: ({ name, amt, tier }) =>
       `${tier === 'pro' ? 'Pro' : 'Basic'} tier selected.\n\n` +
-      `Pay your ₹${config.depositAmountInr} refundable deposit to activate Day 1, or send a promo code if you have one:\n`,
+      `Two payments activate Day 1: your ₹${config.depositAmountInr} refundable deposit, and your first month's ${tier === 'pro' ? 'Pro' : 'Basic'} fee. Both links are below — or send a promo code instead for 14 days completely free, no payment.`,
     howItWorks: () =>
       "Daily check-in routine:\n" +
       "1. I message you before your chosen workout time with today's target.\n" +
       "2. You complete your workout and reply with one line of text and a photo showing the daily gesture.\n" +
       "3. Show up consistently, retain your deposit, and build unstoppable consistency.",
-    paymentLink: (url) => `Deposit link:\n${url}\n\nYour account activates automatically the moment payment is confirmed.`,
-    notPaidYet: () => `Pay your ₹${config.depositAmountInr} deposit using the link above — your account activates automatically once it's confirmed.`,
+    paymentLink: (url) => `Deposit link (refundable):\n${url}`,
+    tierFeeLink: (url, tier) => `${tier === 'pro' ? 'Pro' : 'Basic'} first-month fee link:\n${url}\n\nYour account activates automatically the moment BOTH payments are confirmed.`,
+    notPaidYet: () => `Still waiting on payment confirmation — your account activates automatically once it's received. Use the links sent earlier, or send a promo code instead.`,
     paidConfirmed: (time, activity, tier) =>
       `Yes, your payment has been confirmed! Your ${tier === 'pro' ? 'Pro' : 'Basic'} membership is now active.\n\n` +
       `I will message you daily before ${time || '08:00'} for your ${activity || 'workout'} check-in.`,
@@ -201,20 +202,21 @@ const T = {
   tl: {
     depositAsk: ({ name, amt }) =>
       `${name}, unga 30-day pledge summary:\n\n` +
-      `• Trial: 14-day free access\n` +
       `• Refundable Deposit: ₹${amt}\n` +
+      `• First month fee: unga tier padi (link keela varum)\n` +
       `• Platform Fee: ₹30\n` +
       `• Base Refund Balance: ₹270 (pledge mudicha udane)\n` +
       `• Free Buffer: 2 free strike days (zero penalty)\n` +
       `• Slip Penalty: ₹50 per missed day beyond free strikes\n\n` +
-      `Lock-in panna ready-ah?`,
+      `Rendu payment pannaanaalum Day 1 activate aagum — illa, promo code irundha 14 days free-ah try pannalaam, payment vendaam.`,
     howItWorks: () =>
       "Daily routine:\n" +
       "1. Daily unga check-in time-la remind pannuven.\n" +
       "2. Workout mudichutu oru line + daily gesture photo proof anupunga.\n" +
       "3. Consistent-ah show up pannunga, unga deposit balance return vaangunga.",
-    paymentLink: (url) => `Unga ₹${config.depositAmountInr} refundable deposit link:\n${url}\n\nPay pannitu "paid" nu reply pannunga. Day 1 start aagum.`,
-    notPaidYet: () => `₹${config.depositAmountInr} deposit pay pannitu "paid" nu text pannunga.`,
+    paymentLink: (url) => `Unga ₹${config.depositAmountInr} refundable deposit link:\n${url}`,
+    tierFeeLink: (url, tier) => `Unga first month ${tier === 'pro' ? 'Pro' : 'Basic'} fee link:\n${url}\n\nRendu payment confirm aana udane account automatic-ah activate aagum.`,
+    notPaidYet: () => `Innum payment confirm aagala. Mela anupina links use pannunga, illa promo code anuppunga.`,
     paidConfirmed: (time, activity) => `Payment confirmed. Unga 30-day pledge active aayiduchu.\n\nDaily ${time || '08:00'} ku ${activity || 'workout'} check-in remind panren.`,
     dailyPrompt: (activity, gestureText) => `Time to show up. Workout update + ${getProofInstruction('tl', activity, gestureText)} photo proof anupunga.`,
     needPhoto: (gestureText, activity) => `Verify panna ${getProofInstruction('tl', activity || 'gym', gestureText)} kaati photo proof anupunga.`,
@@ -258,17 +260,18 @@ const T = {
   ta: {
     depositAsk: ({ name, amt }) =>
       `${name}, உங்கள் 30-நாள் திட்ட விவரம்:\n\n` +
-      `• இலவச சோதனை: 14 நாட்கள்\n` +
       `• திரும்பப்பெறும் டெபாசிட்: ₹${amt}\n` +
+      `• முதல் மாத கட்டணம்: உங்கள் தரம் படி (கீழே இணைப்பு)\n` +
       `• பிளாட்ஃபார்ம் கட்டணம்: ₹30\n` +
       `• திரும்பப்பெறும் இருப்பு: ₹270\n` +
       `• இலவச ஸ்ட்ரைக்: 2 நாட்கள்\n` +
       `• அபராதம்: தவறவிடும் நாளுக்கு ₹50\n\n` +
-      `தொடங்க தயாரா?`,
+      `இரண்டு கட்டணமும் செலுத்தினால் Day 1 தொடங்கும் — அல்லது ப்ரோமோ கோட் இருந்தால் 14 நாட்கள் இலவசமாக முயற்சிக்கலாம், கட்டணம் தேவையில்லை.`,
     howItWorks: () =>
       "தினசரி முறை:\n1. குறிப்பிட்ட நேரத்தில் நினைவூட்டல் வரும்.\n2. ஒரு வரி தகவல் மற்றும் புகைப்பட ஆதாரம் அனுப்பவும்.\n3. தொடர்ந்து செய்து டெபாசிட்டை திரும்பப் பெறுங்கள்.",
-    paymentLink: (url) => `உங்கள் ₹${config.depositAmountInr} டெபாசிட் இணைப்பு:\n${url}\n\nசெலுத்திய பின் "paid" என அனுப்பவும்.`,
-    notPaidYet: () => `₹${config.depositAmountInr} செலுத்தி "paid" என அனுப்பவும்.`,
+    paymentLink: (url) => `உங்கள் ₹${config.depositAmountInr} டெபாசிட் இணைப்பு:\n${url}`,
+    tierFeeLink: (url, tier) => `உங்கள் முதல் மாத ${tier === 'pro' ? 'Pro' : 'Basic'} கட்டண இணைப்பு:\n${url}\n\nஇரண்டு கட்டணமும் உறுதி ஆனதும் கணக்கு தானாக செயல்படும்.`,
+    notPaidYet: () => `இன்னும் கட்டணம் உறுதி செய்யப்படவில்லை. மேலே அனுப்பிய இணைப்புகளை பயன்படுத்தவும், அல்லது ப்ரோமோ கோட் அனுப்பவும்.`,
     paidConfirmed: (time, activity) => `கட்டணம் உறுதி செய்யப்பட்டது. உங்கள் 30-நாள் திட்டம் தொடங்கிவிட்டது.\n\nதினமும் ${time || '08:00'} மணிக்கு நினைவூட்டுவேன்.`,
     dailyPrompt: (activity, gestureText) => `நேரமானது. உடற்பயிற்சி தகவல் மற்றும் ${getProofInstruction('ta', activity, gestureText)} புகைப்படத்தை அனுப்பவும்.`,
     needPhoto: (gestureText, activity) => `சரிபார்க்க ${getProofInstruction('ta', activity || 'gym', gestureText)} புகைப்படத்தை அனுப்பவும்.`,
@@ -309,17 +312,18 @@ const T = {
   hi: {
     depositAsk: ({ name, amt }) =>
       `${name}, आपके 30-दिन के संकल्प का विवरण:\n\n` +
-      `• ट्रायल: 14-दिन का मुफ्त एक्सेस\n` +
       `• रिफंडेबल डिपॉजिट: ₹${amt}\n` +
+      `• पहले महीने की फीस: आपके प्लान के अनुसार (लिंक नीचे)\n` +
       `• प्लेटफॉर्म फीस: ₹30\n` +
       `• रिफंड बैलेंस: ₹270 (30 दिन पूरे होने पर)\n` +
       `• बफर: 2 फ्री स्ट्राइक दिन\n` +
       `• पेनल्टी: प्रति मिस दिन ₹50\n\n` +
-      `शुरू करने के लिए तैयार हैं?`,
+      `दोनों भुगतान करने पर Day 1 शुरू होगा — या प्रोमो कोड भेजें, 14 दिन बिल्कुल मुफ्त, कोई भुगतान नहीं।`,
     howItWorks: () =>
       "दैनिक रूटीन:\n1. आपके तय समय पर मैसेज आएगा।\n2. कसरत के बाद एक लाइन और इशारे के साथ फोटो भेजें।\n3. लगातार आएं और अपना डिपॉजिट वापस पाएं।",
-    paymentLink: (url) => `अपना ₹${config.depositAmountInr} रिफंडेबल डिपॉजिट यहां जमा करें:\n${url}\n\nजमा करने के बाद "paid" लिखकर भेजें।`,
-    notPaidYet: () => `₹${config.depositAmountInr} जमा करें और "paid" लिखकर भेजें।`,
+    paymentLink: (url) => `अपना ₹${config.depositAmountInr} रिफंडेबल डिपॉजिट यहां जमा करें:\n${url}`,
+    tierFeeLink: (url, tier) => `आपके पहले महीने की ${tier === 'pro' ? 'Pro' : 'Basic'} फीस का लिंक:\n${url}\n\nदोनों भुगतान की पुष्टि होते ही खाता अपने आप सक्रिय हो जाएगा।`,
+    notPaidYet: () => `अभी तक भुगतान की पुष्टि नहीं हुई है। ऊपर भेजे गए लिंक इस्तेमाल करें, या प्रोमो कोड भेजें।`,
     paidConfirmed: (time, activity) => `भुगतान की पुष्टि हो गई। आपका 30-दिन का संकल्प शुरू हो गया है।\n\nरोज़ ${time || '08:00'} बजे याद दिलाऊंगा।`,
     dailyPrompt: (activity, gestureText) => `समय हो गया है। कसरत का अपडेट और ${getProofInstruction('hi', activity, gestureText)} दिखाते हुए फोटो भेजें।`,
     needPhoto: (gestureText, activity) => `पुष्टि के लिए ${getProofInstruction('hi', activity || 'gym', gestureText)} दिखाते हुए फोटो भेजें।`,
@@ -360,17 +364,18 @@ const T = {
   hl: {
     depositAsk: ({ name, amt }) =>
       `${name}, aapka 30-day pledge breakdown:\n\n` +
-      `• Trial: 14-day free access\n` +
       `• Refundable Deposit: ₹${amt}\n` +
+      `• Pehle mahine ki fee: aapke plan ke hisaab se (link neeche)\n` +
       `• Platform Fee: ₹30\n` +
       `• Refund Balance: ₹270 (30 days complete hone par)\n` +
       `• Free Buffer: 2 free strike days\n` +
       `• Slip Penalty: ₹50 per missed day beyond free strikes\n\n` +
-      `Lock-in karne ke liye ready?`,
+      `Dono payment karne par Day 1 activate hoga — ya promo code bhejein, 14 din bilkul free, koi payment nahi.`,
     howItWorks: () =>
       "Daily routine:\n1. Aapke set time par reminder aayega.\n2. Workout karke ek line + gesture photo proof bhejein.\n3. Consistent rahein aur deposit balance wapas lein.",
-    paymentLink: (url) => `Aapka ₹${config.depositAmountInr} refundable deposit link:\n${url}\n\nPay karke "paid" reply karein. Day 1 start hoga.`,
-    notPaidYet: () => `₹${config.depositAmountInr} deposit pay karke "paid" text karein.`,
+    paymentLink: (url) => `Aapka ₹${config.depositAmountInr} refundable deposit link:\n${url}`,
+    tierFeeLink: (url, tier) => `Aapke pehle mahine ki ${tier === 'pro' ? 'Pro' : 'Basic'} fee ka link:\n${url}\n\nDono payment confirm hote hi account apne aap activate ho jayega.`,
+    notPaidYet: () => `Abhi tak payment confirm nahi hua. Upar bheje gaye links use karein, ya promo code bhejein.`,
     paidConfirmed: (time, activity) => `Payment confirmed. Aapka 30-day pledge active ho gaya hai.\n\nDaily ${time || '08:00'} baje check-in remind karunga.`,
     dailyPrompt: (activity, gestureText) => `Time to show up. Workout update aur ${getProofInstruction('hl', activity, gestureText)} photo proof bhejein.`,
     needPhoto: (gestureText, activity) => `Verify karne ke liye ${getProofInstruction('hl', activity || 'gym', gestureText)} photo bhejein.`,
