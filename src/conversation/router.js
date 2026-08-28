@@ -298,9 +298,20 @@ async function handleIncomingMessage({ phone, body, media }) {
       const tier = wantsBasic ? 'basic' : (wantsPro ? 'pro' : (user.tier === 'basic' ? 'basic' : 'pro'));
       if (wantsBasic || wantsPro) db.updateUser(user.id, { tier });
       const razorpay = require('../services/razorpay');
-      const link = await razorpay.createSubscriptionPaymentLink({ user: { ...user, tier }, tier });
+      // Real consistency discount, applied to the actual charge — not just
+      // shown in a message. user.missed_count is the just-completed month's
+      // final tally (set once at pledge completion, untouched while in
+      // COMPLETED state), so this is the same number that was already shown
+      // to them in the completion message — recomputing here rather than
+      // storing a separate field keeps it as a single source of truth.
+      const { calculateSubscriptionDiscount } = require('../utils/payout');
+      const discount = calculateSubscriptionDiscount(user.missed_count || 0, tier === 'pro');
+      const link = await razorpay.createSubscriptionPaymentLink({ user: { ...user, tier }, tier, priceOverrideInr: discount.finalPrice });
       if (link) {
-        await messaging.sendText(phone, `Renewal link for ${tier === 'pro' ? 'Pro' : 'Basic'}:\n${link}\n\nYour membership activates automatically once payment lands.`);
+        const discountLine = discount.totalDiscount > 0
+          ? `Your rate: ₹${discount.finalPrice}/mo (₹${discount.totalDiscount} off for ${discount.cleanWeeks} clean week${discount.cleanWeeks === 1 ? '' : 's'} last month).`
+          : `Your rate: ₹${discount.finalPrice}/mo.`;
+        await messaging.sendText(phone, `Renewal link for ${tier === 'pro' ? 'Pro' : 'Basic'}:\n${link}\n\n${discountLine}\n\nYour membership activates automatically once payment lands.`);
       } else {
         await messaging.sendText(phone, "Sorry, I couldn't generate a renewal link right now — please try again shortly.");
       }
@@ -320,8 +331,8 @@ async function handleIncomingMessage({ phone, body, media }) {
   if (CHECKIN_STATES.has(user.state) && user.deposit_status === 'trial' && user.trial_expires_at) {
     const today = require('../utils/date').todayStr(require('../config').timezone);
     if (today > user.trial_expires_at) {
-      db.updateUser(user.id, { deposit_status: 'unpaid', tier_fee_status: 'unpaid', tier: 'free', deposit_amount_inr: null, state: states.AWAITING_PAYMENT });
-      await messaging.sendText(phone, 'Your 14-day free trial has ended. To keep chatting with your coach, reply "1" for Basic or "2" for Pro to get your two payment links — your account activates automatically once both are confirmed.');
+      db.updateUser(user.id, { deposit_status: 'unpaid', tier: 'free', deposit_amount_inr: null, state: states.AWAITING_PAYMENT });
+      await messaging.sendText(phone, 'Your 14-day free trial has ended. To keep chatting with your coach, reply "1" or "2" to get your deposit link — your account activates automatically once payment is confirmed.');
       return;
     }
   }

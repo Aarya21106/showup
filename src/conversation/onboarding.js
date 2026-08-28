@@ -10,7 +10,7 @@ const razorpay = require('../services/razorpay');
 const motivationEngine = require('../services/motivationEngine');
 const { todayStr, addDaysStr } = require('../utils/date');
 const { isOffTopicQuestion, containsConcernOrObjection } = require('../utils/intent');
-const { promptNutritionChoice, applyDepositPayment, applyTierFeePayment } = require('../services/depositActivation');
+const { promptNutritionChoice, applyDepositPayment } = require('../services/depositActivation');
 
 async function resolveImage(media) {
   if (!media) return null;
@@ -51,25 +51,18 @@ const PROMO_TRIAL_DAYS = 14;
 const PROMO_DEPOSIT_INR = 50;
 
 /**
- * Sends BOTH payment links required to activate an account (no promo code):
- * the refundable deposit AND the first month's tier fee — two separate real
- * Razorpay Payment Links when Razorpay is configured (each tagged with this
- * user's id/tier/type in `notes`, so the webhook can auto-confirm payment
- * without anyone needing to reply "paid"), falling back to the static
- * deposit link from env vars otherwise (tier-fee link is skipped in that
- * fallback case — there's no static env var for it, matching how the app
- * behaved before Razorpay was configured at all).
+ * Sends the deposit payment link — the ONLY charge required to activate an
+ * account (no promo code): paying it unlocks full Pro access for month 1,
+ * completely free. A real per-user Razorpay Payment Link when Razorpay is
+ * configured (tagged with this user's id/tier in `notes`, so the webhook can
+ * auto-confirm payment without anyone needing to reply "paid"), falling back
+ * to the static link from env vars otherwise.
  */
-async function sendActivationLinks(user, tier) {
-  const dynamicDepositLink = await razorpay.createDepositPaymentLink({ user, tier });
-  const depositLink = dynamicDepositLink || getPaymentLinkForTier(tier);
-  if (depositLink) {
-    await messaging.sendText(user.phone, messages.t(user.language, 'paymentLink', depositLink));
-  }
-
-  const tierFeeLink = await razorpay.createTierFeePaymentLink({ user, tier });
-  if (tierFeeLink) {
-    await messaging.sendText(user.phone, messages.t(user.language, 'tierFeeLink', tierFeeLink, tier));
+async function sendDepositLink(user, tier) {
+  const dynamicLink = await razorpay.createDepositPaymentLink({ user, tier });
+  const link = dynamicLink || getPaymentLinkForTier(tier);
+  if (link) {
+    await messaging.sendText(user.phone, messages.t(user.language, 'paymentLink', link));
   }
 }
 
@@ -205,24 +198,22 @@ async function handleOnboarding(user, body, media) {
     // actively "picks" it), so the correct check is against that sentinel value.
     const tierUnselected = !user.tier || user.tier === 'free';
 
-    if ((lower === '1' || /\bbasic\b/i.test(lower)) && tierUnselected) {
-      const updated = db.updateUser(user.id, { tier: 'basic' });
-      await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'basic' }));
-      await sendActivationLinks(updated, 'basic');
-      return;
-    }
-
-    if ((lower === '2' || /\bpro\b/i.test(lower)) && tierUnselected) {
+    // Month 1 is always full Pro access, free, once the deposit is paid —
+    // there's no real Basic/Pro choice to make here anymore (that only
+    // matters starting the month-2 renewal, asked again at that point in
+    // router.js). "1"/"2"/"basic"/"pro" are all still accepted here so
+    // anyone replying out of habit to the pitch message still moves forward.
+    if ((lower === '1' || lower === '2' || /\bbasic\b/i.test(lower) || /\bpro\b/i.test(lower)) && tierUnselected) {
       const updated = db.updateUser(user.id, { tier: 'pro' });
-      await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name, tier: 'pro' }));
-      await sendActivationLinks(updated, 'pro');
+      await messaging.sendText(phone, messages.t(user.language, 'depositAsk', { name: user.name }));
+      await sendDepositLink(updated, 'pro');
       return;
     }
 
     // --- Promo code: free trial access, no payment needed ---
     if (text.trim().toUpperCase() === PROMO_CODE) {
       if (user.promo_code_used) {
-        await messaging.sendText(phone, 'That promo code has already been used on this account. Reply "1" for Basic or "2" for Pro to get your two payment links — your account activates automatically once both are confirmed.');
+        await messaging.sendText(phone, 'That promo code has already been used on this account. Reply "1" or "2" to get your deposit link — your account activates automatically once payment is confirmed.');
         return;
       }
       const today = todayStr(config.timezone);
@@ -278,7 +269,7 @@ async function handleOnboarding(user, body, media) {
       // don't silently guess for them — ask first, since this was the source of
       // repeated "why is my account on the wrong tier" confusion.
       if (tierUnselected) {
-        await messaging.sendText(phone, 'Which plan are you paying for? Reply "1" for Basic or "2" for Pro first to get your two payment links.');
+        await messaging.sendText(phone, 'Reply "1" or "2" first to get your deposit link.');
         return;
       }
 
@@ -294,12 +285,9 @@ async function handleOnboarding(user, body, media) {
       // trust the user's word alone, always verify against Razorpay directly)
       // before giving up and saying nothing was received.
       if (config.razorpay.keyId && config.razorpay.keySecret) {
-        let foundAny = false;
-
         if (user.deposit_status !== 'paid') {
           const paidLink = await razorpay.findPaidDepositLinkForUser(user.id);
           if (paidLink) {
-            foundAny = true;
             await applyDepositPayment({
               user,
               tier: paidLink.notes.tier,
@@ -307,28 +295,9 @@ async function handleOnboarding(user, body, media) {
               razorpayPaymentId: null, // list API doesn't expose the underlying payment id; link id is enough for the audit trail
               razorpayLinkId: paidLink.id,
             });
+            return; // applyDepositPayment already sent the real confirmation + nutrition prompt
           }
         }
-
-        if (user.tier_fee_status !== 'paid') {
-          const paidFeeLink = await razorpay.findPaidTierFeeLinkForUser(user.id);
-          if (paidFeeLink) {
-            foundAny = true;
-            // Re-read: the deposit branch above may have just changed deposit_status
-            // on this same row, and applyTierFeePayment's own full-activation check
-            // needs the current value, not the one from the start of this handler.
-            const freshUser = db.getUserById(user.id);
-            await applyTierFeePayment({
-              user: freshUser,
-              tier: paidFeeLink.notes.tier,
-              amountInr: Math.round((paidFeeLink.amount_paid || paidFeeLink.amount || 0) / 100),
-              razorpayPaymentId: null,
-              razorpayLinkId: paidFeeLink.id,
-            });
-          }
-        }
-
-        if (foundAny) return; // applyDepositPayment/applyTierFeePayment already sent the right acknowledgement or full confirmation
 
         await messaging.sendText(phone, "I haven't received confirmation of that payment yet. If you just paid, give it a minute — your account activates automatically the moment it's confirmed. If it's been a while, double check the payment went through on your end.");
         return;
@@ -336,8 +305,7 @@ async function handleOnboarding(user, body, media) {
 
       // Razorpay isn't configured at all in this deployment — no gateway exists
       // to verify anything against, so "paid" is trusted as-is (matches the
-      // app's pre-Razorpay behavior). Marks both charges paid together since
-      // there's no way to distinguish them without a real payment gateway.
+      // app's pre-Razorpay behavior).
       const activeTier = user.tier;
       const today = todayStr(config.timezone);
       const updated = db.updateUser(user.id, {

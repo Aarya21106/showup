@@ -1,18 +1,20 @@
 /**
- * Deposit + tier-fee payment activation logic — pulled out into its own
- * neutral module so both routes/payments.js (the webhook handler) and
+ * Deposit-payment activation logic — pulled out into its own neutral module
+ * so both routes/payments.js (the webhook handler) and
  * conversation/onboarding.js (the reconciliation fallback in the "paid" text
  * branch) can share the EXACT same activation code without requiring each
  * other directly, which would create a circular require.
  *
- * Activating an account (without a promo code) requires TWO separate real
- * payments: the refundable deposit (config.depositAmountInr) AND the first
- * month's tier fee (config.pricing.basic/pro.monthly) — there is no free
- * trial period unless a valid promo code was used instead, which bypasses
- * both charges entirely (handled elsewhere, in onboarding.js's promo branch).
- * Each payment is tracked independently (deposit_status / tier_fee_status);
- * full activation (Day 1 starts, nutrition setup begins) only fires once
- * BOTH are 'paid'.
+ * Current rule (business decision, superseding an earlier two-charge model):
+ * paying ONLY the refundable deposit (config.depositAmountInr) activates the
+ * account with full PRO access for month 1, completely free — no separate
+ * tier fee required upfront. Starting month 2, the real subscription price
+ * applies (config.pricing.basic/pro.monthly), reduced by the consistency
+ * discount earned during month 1 (see utils/payout.js's
+ * calculateSubscriptionDiscount, applied when the renewal link is created —
+ * see conversation/router.js's COMPLETED-state renewal handler). A valid
+ * promo code (handled separately in onboarding.js) waives the deposit too,
+ * for a genuinely free 14-day trial.
  */
 const db = require('../db/db');
 const states = require('../conversation/states');
@@ -30,20 +32,32 @@ function promptNutritionChoice(user) {
   );
 }
 
-function tierFeeAmount(tier) {
-  return tier === 'basic'
-    ? (config.testBasicChargeInr || config.pricing.basic.monthly)
-    : (config.testProChargeInr || config.pricing.pro.monthly);
-}
-
 /**
- * If both the deposit AND the tier fee are now paid, fully activates the
- * account (Day 1 starts, moves into nutrition setup) and returns true.
- * Otherwise leaves state untouched and returns false — the caller is
- * responsible for acknowledging whichever single payment just landed.
+ * Applies a confirmed-paid deposit to a user's account — logs the payment
+ * and fully activates the account (month 1 is free Pro access, deposit is
+ * the only charge). Shared by the webhook handler AND the reconciliation
+ * fallback (findPaidDepositLinkForUser) so both paths apply the exact same
+ * logic. Idempotent: returns false without side effects if this exact
+ * payment was already processed or the deposit is already marked paid.
  */
-async function maybeFullyActivate(user) {
-  if (user.deposit_status !== 'paid' || user.tier_fee_status !== 'paid') return false;
+async function applyDepositPayment({ user, tier, amountInr, razorpayPaymentId, razorpayLinkId }) {
+  if (razorpayPaymentId && db.getPaymentsForUser(user.id).some((p) => p.razorpay_payment_id === razorpayPaymentId)) {
+    return false;
+  }
+  if (user.deposit_status === 'paid') return false;
+
+  // Month 1 is always full Pro access, free, regardless of what tier (if
+  // any) was selected earlier — the real Basic/Pro choice + real price only
+  // matters starting the month-2 renewal.
+  db.logPayment({
+    userId: user.id,
+    razorpayPaymentId,
+    razorpayLinkId,
+    type: 'deposit',
+    tier: 'pro',
+    amountInr,
+    status: 'captured',
+  });
 
   const today = todayStr(config.timezone);
   // Durable (awaited) write: this is the moment the account is told it's
@@ -51,6 +65,8 @@ async function maybeFullyActivate(user) {
   // durable copy actually landed before anyone sees "you're activated".
   const updated = await db.updateUserDurable(user.id, {
     accountability_mode: 'accountability',
+    deposit_status: 'paid',
+    tier: 'pro',
     started_at: today,
     day_count: 0,
     state: states.AWAITING_NUTRITION_CHOICE,
@@ -63,73 +79,4 @@ async function maybeFullyActivate(user) {
   return true;
 }
 
-/**
- * Applies a confirmed-paid deposit to a user's account. Shared by the
- * webhook handler AND the reconciliation fallback (findPaidDepositLinkForUser)
- * so both paths apply the exact same logic. Idempotent: returns false without
- * side effects if this exact payment was already processed or the deposit is
- * already marked paid.
- */
-async function applyDepositPayment({ user, tier, amountInr, razorpayPaymentId, razorpayLinkId }) {
-  if (razorpayPaymentId && db.getPaymentsForUser(user.id).some((p) => p.razorpay_payment_id === razorpayPaymentId)) {
-    return false;
-  }
-  if (user.deposit_status === 'paid') return false;
-
-  const activeTier = tier === 'basic' ? 'basic' : 'pro';
-
-  db.logPayment({
-    userId: user.id,
-    razorpayPaymentId,
-    razorpayLinkId,
-    type: 'deposit',
-    tier: activeTier,
-    amountInr,
-    status: 'captured',
-  });
-
-  const updated = await db.updateUserDurable(user.id, { deposit_status: 'paid', tier: activeTier });
-
-  if (await maybeFullyActivate(updated)) return true;
-
-  await messaging.sendText(
-    updated.phone,
-    `Deposit received. One more step: pay your first month's ${activeTier === 'pro' ? 'Pro' : 'Basic'} fee (₹${tierFeeAmount(activeTier)}) to fully activate — reply "paid" once you have, or use the link sent earlier.`
-  );
-  return true;
-}
-
-/**
- * Applies a confirmed-paid first-month tier fee to a user's account. Mirror
- * of applyDepositPayment above for the OTHER of the two required charges.
- */
-async function applyTierFeePayment({ user, tier, amountInr, razorpayPaymentId, razorpayLinkId }) {
-  if (razorpayPaymentId && db.getPaymentsForUser(user.id).some((p) => p.razorpay_payment_id === razorpayPaymentId)) {
-    return false;
-  }
-  if (user.tier_fee_status === 'paid') return false;
-
-  const activeTier = tier === 'basic' ? 'basic' : 'pro';
-
-  db.logPayment({
-    userId: user.id,
-    razorpayPaymentId,
-    razorpayLinkId,
-    type: 'initial_fee',
-    tier: activeTier,
-    amountInr,
-    status: 'captured',
-  });
-
-  const updated = await db.updateUserDurable(user.id, { tier_fee_status: 'paid', tier: activeTier });
-
-  if (await maybeFullyActivate(updated)) return true;
-
-  await messaging.sendText(
-    updated.phone,
-    `${activeTier === 'pro' ? 'Pro' : 'Basic'} fee received. One more step: pay your ₹${config.depositAmountInr} refundable deposit to fully activate — reply "paid" once you have, or use the link sent earlier.`
-  );
-  return true;
-}
-
-module.exports = { promptNutritionChoice, applyDepositPayment, applyTierFeePayment, tierFeeAmount };
+module.exports = { promptNutritionChoice, applyDepositPayment };

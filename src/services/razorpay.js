@@ -14,12 +14,11 @@ function getClient() {
  * Creates a per-user Razorpay Payment Link for the refundable deposit, tagged
  * with this user's id, tier, and type: 'deposit' in `notes` — the webhook
  * handler and the reconciliation fallback both read these back to know
- * exactly whose payment just came in and what it's for, instead of trusting
- * a self-reported "paid" text reply.
- *
- * This is one of TWO separate charges required to activate an account (see
- * createTierFeePaymentLink for the other) unless a valid promo code was used
- * instead, which waives both.
+ * exactly whose payment just came in, instead of trusting a self-reported
+ * "paid" text reply. This is the ONLY charge required to activate an
+ * account — paying it unlocks a free Pro month 1 (see
+ * services/depositActivation.js) — unless a valid promo code was used
+ * instead, which waives it entirely.
  */
 async function createDepositPaymentLink({ user, tier }) {
   const razorpay = getClient();
@@ -46,52 +45,25 @@ async function createDepositPaymentLink({ user, tier }) {
 }
 
 /**
- * Creates a per-user Razorpay Payment Link for the FIRST month's tier fee —
- * the second of the two separate charges required to activate an account
- * (alongside the refundable deposit above), unless a valid promo code
- * waives both and grants the 14-day free trial instead. Tagged type:
- * 'initial_fee' so the webhook/reconciliation can tell this apart from a
- * later renewal (type: 'subscription', see createSubscriptionPaymentLink).
- */
-async function createTierFeePaymentLink({ user, tier }) {
-  const razorpay = getClient();
-  if (!razorpay) return null;
-
-  const amountInr = tier === 'pro'
-    ? (config.testProChargeInr || config.pricing.pro.monthly)
-    : (config.testBasicChargeInr || config.pricing.basic.monthly);
-
-  try {
-    const link = await razorpay.paymentLink.create({
-      amount: amountInr * 100,
-      currency: 'INR',
-      description: `ShowUp ${tier === 'pro' ? 'Pro' : 'Basic'} first month`,
-      reference_id: `user_${user.id}_initialfee_${Date.now()}`,
-      notes: { user_id: String(user.id), tier, type: 'initial_fee' },
-      customer: { name: user.name || 'ShowUp Member' },
-      notify: { sms: false, email: false },
-      reminder_enable: false,
-    });
-    return link.short_url;
-  } catch (err) {
-    console.error('[Razorpay] Failed to create tier-fee payment link:', err.message);
-    return null;
-  }
-}
-
-/**
  * Creates a per-user Razorpay Payment Link for a monthly subscription renewal
- * (sent when a user's 30-day pledge completes) — same pattern as the two
- * links above, but tagged type: 'subscription' so the webhook knows to renew
- * the pledge cycle instead of running the initial-activation flow.
+ * (sent when a user's 30-day pledge completes, or free-trial period ends),
+ * tagged type: 'subscription' so the webhook knows to renew the pledge cycle
+ * instead of running the initial-activation flow.
+ *
+ * `priceOverrideInr`, when given, charges that exact amount instead of the
+ * flat monthly price — used to apply the earned consistency discount (see
+ * utils/payout.js's calculateSubscriptionDiscount) to the REAL charge, not
+ * just display it in a message. A test-charge override (env-configured),
+ * where set, still wins over both — it exists specifically to keep live
+ * testing cheap regardless of what the real price would otherwise be.
  */
-async function createSubscriptionPaymentLink({ user, tier }) {
+async function createSubscriptionPaymentLink({ user, tier, priceOverrideInr }) {
   const razorpay = getClient();
   if (!razorpay) return null;
 
-  const amountInr = tier === 'pro'
-    ? (config.testProChargeInr || config.pricing.pro.monthly)
-    : (config.testBasicChargeInr || config.pricing.basic.monthly);
+  const testOverride = tier === 'pro' ? config.testProChargeInr : config.testBasicChargeInr;
+  const fullPrice = tier === 'pro' ? config.pricing.pro.monthly : config.pricing.basic.monthly;
+  const amountInr = testOverride || priceOverrideInr || fullPrice;
 
   try {
     const link = await razorpay.paymentLink.create({
@@ -119,28 +91,24 @@ async function createSubscriptionPaymentLink({ user, tier }) {
  * notification hasn't arrived, perform an immediate API Fetch call to
  * verify status"), this asks Razorpay directly — via our own real API
  * credentials, never by fabricating or replaying a webhook payload — whether
- * a payment link tagged for this user has actually been paid. Scans recent
- * payment links (Razorpay's list API has no server-side filter by notes).
- * `type` selects which of the two initial charges to look for ('deposit' or
- * 'initial_fee'); returns the most recent matching PAID link, or null.
+ * the deposit payment link tagged for this user has actually been paid.
+ * Scans recent payment links (Razorpay's list API has no server-side filter
+ * by notes); returns the most recent matching PAID deposit link, or null.
  */
-async function findPaidLinkForUser(userId, type) {
+async function findPaidDepositLinkForUser(userId) {
   const razorpay = getClient();
   if (!razorpay) return null;
 
   try {
     const res = await razorpay.paymentLink.all({ count: 30 });
     const links = res.payment_links || res.items || [];
-    const match = links.find((l) => l.notes && l.notes.user_id === String(userId) && l.status === 'paid' && l.notes.type === type);
+    const match = links.find((l) => l.notes && l.notes.user_id === String(userId) && l.status === 'paid' && l.notes.type === 'deposit');
     return match || null;
   } catch (err) {
-    console.error('[Razorpay] findPaidLinkForUser error:', err.message);
+    console.error('[Razorpay] findPaidDepositLinkForUser error:', err.message);
     return null;
   }
 }
-
-const findPaidDepositLinkForUser = (userId) => findPaidLinkForUser(userId, 'deposit');
-const findPaidTierFeeLinkForUser = (userId) => findPaidLinkForUser(userId, 'initial_fee');
 
 /** Verifies the X-Razorpay-Signature header against the raw webhook body. */
 function verifyWebhookSignature(rawBody, signature) {
@@ -155,9 +123,7 @@ function verifyWebhookSignature(rawBody, signature) {
 
 module.exports = {
   createDepositPaymentLink,
-  createTierFeePaymentLink,
   createSubscriptionPaymentLink,
   verifyWebhookSignature,
   findPaidDepositLinkForUser,
-  findPaidTierFeeLinkForUser,
 };
