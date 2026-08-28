@@ -82,8 +82,8 @@ router.post('/webhook', async (req, res) => {
       });
       // Renewal payment — the user already onboarded once, so skip straight
       // back into active coaching for a fresh 30-day cycle instead of
-      // replaying nutrition setup.
-      const updated = db.updateUser(user.id, {
+      // replaying nutrition setup. Durable write: real money just moved.
+      const updated = await db.updateUserDurable(user.id, {
         tier: activeTier,
         started_at: today,
         day_count: 0,

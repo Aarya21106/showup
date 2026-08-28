@@ -226,7 +226,10 @@ async function handleOnboarding(user, body, media) {
         return;
       }
       const today = todayStr(config.timezone);
-      const updated = db.updateUser(user.id, {
+      // Durable (awaited) write — grants real Pro access on zero payment, so
+      // the same care applies as a real payment: confirm the durable copy
+      // landed before telling anyone they're activated.
+      const updated = await db.updateUserDurable(user.id, {
         accountability_mode: 'accountability',
         deposit_status: 'trial',
         tier_fee_status: 'waived',

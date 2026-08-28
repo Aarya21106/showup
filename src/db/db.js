@@ -131,11 +131,32 @@ if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
 // undelivered, after a redeploy raced a batch of in-flight mirror writes.
 const pendingMirrors = new Set();
 
+// Real incident (2026-08-28): a redeploy hours after a user's onboarding +
+// payment reverted their account to its just-created state. The SIGTERM
+// drain above only protects a write that's still in-flight at the exact
+// moment of shutdown — it can't help a write that already failed outright
+// hours earlier (a transient network blip, a momentary Turso hiccup) with
+// no retry, silently dropped by the bare .catch() this used to have. A
+// single mirror attempt is not durable; retrying a few times with backoff
+// turns a random transient failure into an actual success in the vast
+// majority of cases.
+async function execWithRetry(sql, params, label, attempt = 1) {
+  const maxAttempts = 4;
+  try {
+    await tursoClient.execute({ sql, args: params });
+  } catch (err) {
+    if (attempt >= maxAttempts) {
+      console.error(`[Turso] ${label} permanently failed after ${attempt} attempts:`, err.message, '|', sql);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, attempt * 400));
+    return execWithRetry(sql, params, label, attempt + 1);
+  }
+}
+
 function mirrorWrite(sql, params) {
   if (!tursoClient) return;
-  const p = tursoClient.execute({ sql, args: params }).catch((err) => {
-    console.error('[Turso] Mirror write failed:', err.message, '|', sql);
-  });
+  const p = execWithRetry(sql, params, 'Mirror write');
   pendingMirrors.add(p);
   p.finally(() => pendingMirrors.delete(p));
 }
@@ -183,11 +204,10 @@ function mirrorFullUser(user) {
   const placeholders = columns.map((c) => `@${c}`).join(', ');
   const updateClause = columns.filter((c) => c !== 'id').map((c) => `${c} = excluded.${c}`).join(', ');
   const sql = `INSERT INTO users (${columnList}) VALUES (${placeholders}) ON CONFLICT(id) DO UPDATE SET ${updateClause}`;
-  const p = tursoClient.execute({ sql, args: user }).catch((err) => {
-    console.error('[Turso] Full user mirror failed:', err.message);
-  });
+  const p = execWithRetry(sql, user, 'Full user mirror');
   pendingMirrors.add(p);
   p.finally(() => pendingMirrors.delete(p));
+  return p;
 }
 
 const ALL_MIGRATIONS = [
@@ -382,6 +402,28 @@ function updateUser(id, fields) {
   db.prepare(`UPDATE users SET ${setClause} WHERE id = @id`).run({ ...fields, id });
   const user = getUserById(id);
   mirrorFullUser(user);
+  return user;
+}
+
+/**
+ * Same as updateUser, but WAITS for the Turso mirror (with its retries) to
+ * actually confirm before resolving, instead of firing it and moving on.
+ * Reserved for the highest-stakes writes — account activation from a real
+ * payment — where telling the user "you're activated" before the durable
+ * copy is confirmed risks the exact class of loss that hit a real payment
+ * and a real account earlier (see the long comment above pendingMirrors).
+ * Adds real latency (a network round-trip to Turso, ~tens to a few hundred
+ * ms, more on a retry) — a deliberate trade for correctness on these paths
+ * only; every other call site keeps using the fast, fire-and-forget
+ * updateUser above.
+ */
+async function updateUserDurable(id, fields) {
+  const keys = Object.keys(fields).filter((k) => USER_FIELDS.has(k));
+  if (keys.length === 0) return getUserById(id);
+  const setClause = keys.map((k) => `${k} = @${k}`).join(', ');
+  db.prepare(`UPDATE users SET ${setClause} WHERE id = @id`).run({ ...fields, id });
+  const user = getUserById(id);
+  await mirrorFullUser(user);
   return user;
 }
 
@@ -825,6 +867,7 @@ module.exports = {
   getUserByGoogleUid,
   getOrCreateUserByGoogle,
   updateUser,
+  updateUserDurable,
   getActiveUsers,
   getAllUsers,
   createCheckin,

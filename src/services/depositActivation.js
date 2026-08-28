@@ -46,7 +46,10 @@ async function maybeFullyActivate(user) {
   if (user.deposit_status !== 'paid' || user.tier_fee_status !== 'paid') return false;
 
   const today = todayStr(config.timezone);
-  const updated = db.updateUser(user.id, {
+  // Durable (awaited) write: this is the moment the account is told it's
+  // fully active on real money — worth the extra round-trip to confirm the
+  // durable copy actually landed before anyone sees "you're activated".
+  const updated = await db.updateUserDurable(user.id, {
     accountability_mode: 'accountability',
     started_at: today,
     day_count: 0,
@@ -85,7 +88,7 @@ async function applyDepositPayment({ user, tier, amountInr, razorpayPaymentId, r
     status: 'captured',
   });
 
-  const updated = db.updateUser(user.id, { deposit_status: 'paid', tier: activeTier });
+  const updated = await db.updateUserDurable(user.id, { deposit_status: 'paid', tier: activeTier });
 
   if (await maybeFullyActivate(updated)) return true;
 
@@ -118,7 +121,7 @@ async function applyTierFeePayment({ user, tier, amountInr, razorpayPaymentId, r
     status: 'captured',
   });
 
-  const updated = db.updateUser(user.id, { tier_fee_status: 'paid', tier: activeTier });
+  const updated = await db.updateUserDurable(user.id, { tier_fee_status: 'paid', tier: activeTier });
 
   if (await maybeFullyActivate(updated)) return true;
 
