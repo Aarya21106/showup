@@ -119,11 +119,40 @@ if (process.env.TURSO_DATABASE_URL && process.env.TURSO_AUTH_TOKEN) {
   });
 }
 
+// Tracks every in-flight Turso mirror write so a graceful shutdown (Render
+// sends SIGTERM before killing the container on every redeploy) can wait for
+// them to actually land before the process exits. Without this, a mirror
+// write that hasn't finished yet when the container dies is silently lost —
+// the NEXT boot hydrates from Turso's now-stale snapshot (see
+// hydrateFromTurso below), reverting whatever that write was trying to save.
+// This bit us for real: an account's onboarding progress and a genuine
+// Razorpay payment got reverted, and delivered outbox messages reappeared as
+// undelivered, after a redeploy raced a batch of in-flight mirror writes.
+const pendingMirrors = new Set();
+
 function mirrorWrite(sql, params) {
   if (!tursoClient) return;
-  tursoClient.execute({ sql, args: params }).catch((err) => {
+  const p = tursoClient.execute({ sql, args: params }).catch((err) => {
     console.error('[Turso] Mirror write failed:', err.message, '|', sql);
   });
+  pendingMirrors.add(p);
+  p.finally(() => pendingMirrors.delete(p));
+}
+
+/**
+ * Waits for every currently in-flight Turso mirror write to settle, up to
+ * timeoutMs. Call this from a SIGTERM handler before the process exits so a
+ * redeploy never races an in-progress mirror write (see pendingMirrors doc
+ * comment above for why that matters). Safe to call with zero pending writes.
+ */
+async function drainPendingMirrors(timeoutMs = 8000) {
+  if (pendingMirrors.size === 0) return;
+  const pending = Array.from(pendingMirrors);
+  console.log(`[Turso] Draining ${pending.length} in-flight mirror write(s) before shutdown...`);
+  await Promise.race([
+    Promise.allSettled(pending),
+    new Promise((resolve) => setTimeout(resolve, timeoutMs)),
+  ]);
 }
 
 /** Runs a write (INSERT/UPDATE/DELETE) locally (sync, unchanged behavior) and mirrors it to Turso. */
@@ -786,6 +815,7 @@ function deleteUserCompletely(userId) {
 module.exports = {
   db,
   initTurso,
+  drainPendingMirrors,
   getUserByPhone,
   getUserById,
   getOrCreateUser,

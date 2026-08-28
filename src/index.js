@@ -51,7 +51,7 @@ async function start() {
   // or any request handler can read/write user data.
   await db.initTurso();
 
-  app.listen(config.port, () => {
+  const server = app.listen(config.port, () => {
     console.log(`ShowUp API listening on http://localhost:${config.port}`);
 
     if (!config.geminiConfigured) {
@@ -72,6 +72,33 @@ async function start() {
 
     startScheduler();
   });
+
+  // Render sends SIGTERM before killing the container on every redeploy or
+  // restart. Without this, any Turso mirror write still in flight at that
+  // moment is silently lost — the local (ephemeral) disk is wiped, and the
+  // next boot hydrates from Turso's now-stale snapshot, reverting whatever
+  // that write was trying to save (this caused real data loss: an account's
+  // onboarding progress and a genuine payment got reverted, and already-
+  // delivered chat messages reappeared as undelivered, after a redeploy
+  // raced a batch of in-flight mirror writes). Stop accepting new
+  // connections, then give in-flight Turso writes a chance to actually land
+  // before the process exits.
+  let shuttingDown = false;
+  const shutdown = async (signal) => {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`[Shutdown] ${signal} received — draining in-flight writes before exit...`);
+    server.close();
+    try {
+      await db.drainPendingMirrors();
+    } catch (err) {
+      console.error('[Shutdown] Error while draining pending mirrors:', err.message);
+    }
+    console.log('[Shutdown] Drain complete, exiting.');
+    process.exit(0);
+  };
+  process.on('SIGTERM', () => shutdown('SIGTERM'));
+  process.on('SIGINT', () => shutdown('SIGINT'));
 }
 
 start();
