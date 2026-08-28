@@ -10,6 +10,7 @@ const razorpay = require('../services/razorpay');
 const motivationEngine = require('../services/motivationEngine');
 const { todayStr, addDaysStr } = require('../utils/date');
 const { isOffTopicQuestion, containsConcernOrObjection } = require('../utils/intent');
+const { promptNutritionChoice, applyDepositPayment } = require('../services/depositActivation');
 
 async function resolveImage(media) {
   if (!media) return null;
@@ -26,15 +27,6 @@ async function resolveImage(media) {
     return messaging.fetchInboundMedia(media.mediaUrl);
   }
   return null;
-}
-
-function promptNutritionChoice(user) {
-  return (
-    `One more thing before we kick off Day 1: let's get your nutrition locked in.\n\n` +
-    `Do you want me to create a tailored nutrition plan for you, or do you already follow your own diet plan?\n\n` +
-    `1. Create a customized AI Nutrition Plan for me\n` +
-    `2. I have my own nutrition plan (reply with text or send a photo of your diet chart)`
-  );
 }
 
 /**
@@ -279,12 +271,27 @@ async function handleOnboarding(user, body, media) {
 
       // Bug fix: this used to activate the account purely from the word "paid" —
       // anyone could type it and get instant Pro access with no actual payment.
-      // Now that Razorpay is configured, real payment is confirmed automatically
-      // by its webhook (see routes/payments.js) the moment money actually moves.
-      // Typing "paid" is only ever trusted as a last-resort fallback when
-      // Razorpay isn't configured at all (no keys set) — otherwise it's just a
-      // status check, never an activation.
+      // Now that Razorpay is configured, real payment is normally confirmed
+      // automatically by its webhook (see routes/payments.js) the moment money
+      // moves. But the webhook is a network delivery that can fail to arrive
+      // (wrong/unreachable URL, a dropped delivery, a slow retry queue) even
+      // though the payment itself genuinely went through — so "paid" here also
+      // triggers a real-time reconciliation check straight against Razorpay's
+      // own API (their own recommended pattern for exactly this gap: never
+      // trust the user's word alone, always verify against Razorpay directly)
+      // before giving up and saying nothing was received.
       if (config.razorpay.keyId && config.razorpay.keySecret) {
+        const paidLink = await razorpay.findPaidDepositLinkForUser(user.id);
+        if (paidLink) {
+          const activated = await applyDepositPayment({
+            user,
+            tier: paidLink.notes.tier,
+            amountInr: Math.round((paidLink.amount_paid || paidLink.amount || 0) / 100),
+            razorpayPaymentId: null, // list API doesn't expose the underlying payment id; link id is enough for the audit trail
+            razorpayLinkId: paidLink.id,
+          });
+          if (activated) return; // applyDepositPayment already sent the real confirmation + nutrition prompt
+        }
         await messaging.sendText(phone, "I haven't received confirmation of that payment yet. If you just paid, give it a minute — your account activates automatically the moment it's confirmed. If it's been a while, double check the payment went through on your end.");
         return;
       }

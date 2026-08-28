@@ -6,7 +6,7 @@ const messaging = require('../services/messaging');
 const razorpay = require('../services/razorpay');
 const config = require('../config');
 const { todayStr } = require('../utils/date');
-const { promptNutritionChoice } = require('../conversation/onboarding');
+const { applyDepositPayment } = require('../services/depositActivation');
 
 const router = express.Router();
 
@@ -60,27 +60,26 @@ router.post('/webhook', async (req, res) => {
     const razorpayPaymentId = paymentEntity?.id || null;
     const razorpayLinkId = linkEntity?.id || null;
 
-    // Idempotency: a duplicate webhook delivery (Razorpay retries on any
-    // non-2xx, and can also just double-send) must not double-charge state —
-    // this payment id/link id combination is only ever processed once.
-    if (razorpayPaymentId && db.getPaymentsForUser(userId).some((p) => p.razorpay_payment_id === razorpayPaymentId)) {
-      return;
-    }
-
     const activeTier = notes.tier === 'basic' ? 'basic' : (notes.tier === 'pro' ? 'pro' : (user.tier === 'free' ? 'pro' : user.tier));
     const today = todayStr(config.timezone);
 
-    db.logPayment({
-      userId: user.id,
-      razorpayPaymentId,
-      razorpayLinkId,
-      type: paymentType,
-      tier: activeTier,
-      amountInr: Math.round(amountPaise / 100),
-      status: 'captured',
-    });
-
     if (paymentType === 'subscription') {
+      // Idempotency: a duplicate webhook delivery (Razorpay retries on any
+      // non-2xx, and can also just double-send) must not double-charge state —
+      // this payment id/link id combination is only ever processed once.
+      // (Deposit idempotency is handled inside applyDepositPayment below.)
+      if (razorpayPaymentId && db.getPaymentsForUser(userId).some((p) => p.razorpay_payment_id === razorpayPaymentId)) {
+        return;
+      }
+      db.logPayment({
+        userId: user.id,
+        razorpayPaymentId,
+        razorpayLinkId,
+        type: 'subscription',
+        tier: activeTier,
+        amountInr: Math.round(amountPaise / 100),
+        status: 'captured',
+      });
       // Renewal payment — the user already onboarded once, so skip straight
       // back into active coaching for a fresh 30-day cycle instead of
       // replaying nutrition setup.
@@ -96,21 +95,9 @@ router.post('/webhook', async (req, res) => {
       return;
     }
 
-    if (user.deposit_status === 'paid') return; // deposit already confirmed — nothing to do
-
-    const updated = db.updateUser(user.id, {
-      accountability_mode: 'accountability',
-      deposit_status: 'paid',
-      tier: activeTier,
-      started_at: today,
-      day_count: 0,
-      state: states.AWAITING_NUTRITION_CHOICE,
+    await applyDepositPayment({
+      user, tier: activeTier, amountInr: Math.round(amountPaise / 100), razorpayPaymentId, razorpayLinkId,
     });
-
-    const timeStr = updated.checkin_time || '08:00';
-    const actStr = updated.activity || 'workout';
-    await messaging.sendText(updated.phone, messages.t(updated.language, 'paidConfirmed', timeStr, actStr, activeTier));
-    await messaging.sendText(updated.phone, promptNutritionChoice(updated));
   } catch (err) {
     console.error('[Payments] Webhook handling error:', err);
   }

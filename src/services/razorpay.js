@@ -72,6 +72,33 @@ async function createSubscriptionPaymentLink({ user, tier }) {
   }
 }
 
+/**
+ * Reconciliation fallback for when the webhook hasn't (yet) reached us — e.g.
+ * a misconfigured/unreachable webhook URL, a delivery still queued for
+ * retry, or any other delivery gap. Per Razorpay's own guidance ("if a
+ * critical user-facing flow requires instant status but the webhook
+ * notification hasn't arrived, perform an immediate API Fetch call to
+ * verify status"), this asks Razorpay directly — via our own real API
+ * credentials, never by fabricating or replaying a webhook payload — whether
+ * a payment link tagged for this user has actually been paid. Scans recent
+ * payment links (Razorpay's list API has no server-side filter by notes) and
+ * returns the most recent PAID one tagged with this user's id, or null.
+ */
+async function findPaidDepositLinkForUser(userId) {
+  const razorpay = getClient();
+  if (!razorpay) return null;
+
+  try {
+    const res = await razorpay.paymentLink.all({ count: 30 });
+    const links = res.payment_links || res.items || [];
+    const match = links.find((l) => l.notes && l.notes.user_id === String(userId) && l.status === 'paid' && l.notes.type !== 'subscription');
+    return match || null;
+  } catch (err) {
+    console.error('[Razorpay] findPaidDepositLinkForUser error:', err.message);
+    return null;
+  }
+}
+
 /** Verifies the X-Razorpay-Signature header against the raw webhook body. */
 function verifyWebhookSignature(rawBody, signature) {
   if (!config.razorpay.webhookSecret || !signature) return false;
@@ -83,4 +110,4 @@ function verifyWebhookSignature(rawBody, signature) {
   }
 }
 
-module.exports = { createDepositPaymentLink, createSubscriptionPaymentLink, verifyWebhookSignature };
+module.exports = { createDepositPaymentLink, createSubscriptionPaymentLink, verifyWebhookSignature, findPaidDepositLinkForUser };
