@@ -10,6 +10,14 @@ name: Keep Render backend awake
 # Note: GitHub's schedule trigger is best-effort, not exact — under high
 # platform load a run can be delayed by several minutes. That's fine here:
 # the goal is just "never a full 15-minute gap," not split-second precision.
+#
+# Bug fix: this used to run with -m 20 (a 20-second timeout) despite the
+# comment above stating cold starts take 30-60s — any run unlucky enough to
+# be the one that wakes a sleeping instance was guaranteed to time out and
+# get reported as a failure, even though the service was genuinely coming up
+# fine, just not within 20s. -m 90 gives real cold starts room to finish;
+# --retry adds a couple of quick follow-up attempts for any other transient
+# blip, so a single retryable hiccup doesn't burn a whole failure report.
 
 on:
   schedule:
@@ -21,4 +29,4 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Ping /healthz
-        run: curl -sf -m 20 https://showup-backend-unf8.onrender.com/healthz
+        run: curl -sf -m 90 --retry 2 --retry-delay 5 https://showup-backend-unf8.onrender.com/healthz
